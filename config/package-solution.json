@@ -1,0 +1,45 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.schema.json",
+  "solution": {
+    "name": "spfx-gestor-client-side-solution",
+    "id": "0c540eb2-144c-47b8-a687-929329034f67",
+    "version": "1.0.0.0",
+    "includeClientSideAssets": true,
+    "skipFeatureDeployment": true,
+    "isDomainIsolated": false,
+    "developer": {
+      "name": "",
+      "websiteUrl": "",
+      "privacyUrl": "",
+      "termsOfUseUrl": "",
+      "mpnId": "Undefined-1.23.2",
+      "webApiPermissionRequests" : [
+        {"resource": "Microsoft Graph",
+        "scope": "User.Read"
+        }
+]
+    },
+    "metadata": {
+      "shortDescription": {
+        "default": "spfx-gestor description"
+      },
+      "longDescription": {
+        "default": "spfx-gestor description"
+      },
+      "screenshotPaths": [],
+      "videoUrl": "",
+      "categories": []
+    },
+    "features": [
+      {
+        "title": "spfx-gestor Feature",
+        "description": "The feature that activates elements of the spfx-gestor solution.",
+        "id": "29948ad6-937c-4db4-a03b-89e7497b8ac9",
+        "version": "1.0.0.0"
+      }
+    ]
+  },
+  "paths": {
+    "zippedPackage": "solution/spfx-gestor.sppkg"
+  }
+}
