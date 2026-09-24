@@ -1,77 +1,162 @@
-# spfx-gestor
+# SPFx Requirements Management
 
-## Summary
+Aplicación desarrollada con **SharePoint Framework (SPFx)** y **React** para la gestión de requerimientos internos dentro de SharePoint.
 
-Short summary on functionality and used technologies.
+El proyecto permite registrar solicitudes, seleccionar categorías, adjuntar documentos y preparar el flujo de información para procesos de revisión y aprobación.
 
-[picture of the solution in action, if possible]
+## Tecnologías utilizadas
 
-## Used SharePoint Framework Version
+* SharePoint Framework (SPFx)
+* React
+* TypeScript
+* SCSS
+* Microsoft 365
+* SharePoint Online
+* Power Automate
 
-![version](https://img.shields.io/badge/version-1.23.2-green.svg)
+## Funcionalidades principales
 
-## Applies to
+Actualmente el Web Part permite:
 
-- [SharePoint Framework](https://aka.ms/spfx)
-- [Microsoft 365 tenant](https://docs.microsoft.com/sharepoint/dev/spfx/set-up-your-developer-tenant)
+* Registrar nuevos requerimientos.
+* Obtener información del usuario autenticado.
+* Mostrar datos del solicitante.
+* Seleccionar una categoría de requerimiento.
+* Indicar si una solicitud es recurrente.
+* Registrar el valor total del requerimiento.
+* Adjuntar documentos PDF.
+* Crear el requerimiento dentro de SharePoint.
+* Preparar la información para procesos de aprobación.
 
-> Get your own free development tenant by subscribing to [Microsoft 365 developer program](http://aka.ms/o365devprogram)
+## Estructura principal
 
-## Prerequisites
+```text
+spfx-requirements-management/
+│
+├── config/
+├── src/
+│   └── webparts/
+│       └── requerimientos/
+│           ├── assets/
+│           ├── components/
+│           │   ├── IRequerimientosProps.ts
+│           │   ├── Requerimientos.module.scss
+│           │   └── Requerimientos.tsx
+│           ├── loc/
+│           ├── RequerimientosWebPart.manifest.json
+│           └── RequerimientosWebPart.ts
+│
+├── teams/
+├── package.json
+├── package-lock.json
+├── tsconfig.json
+└── README.md
+```
 
-> Any special pre-requisites?
+## Requisitos
 
-## Solution
+Para ejecutar el proyecto localmente se necesita:
 
-| Solution    | Author(s)                                               |
-| ----------- | ------------------------------------------------------- |
-| folder name | Author details (name, company, twitter alias with link) |
+* Node.js compatible con la versión de SPFx utilizada.
+* npm
+* SharePoint Online
+* Acceso a un tenant de Microsoft 365.
+* Certificado de desarrollo de SPFx configurado.
 
-## Version history
+## Instalación
 
-| Version | Date             | Comments        |
-| ------- | ---------------- | --------------- |
-| 1.1     | March 10, 2021   | Update comment  |
-| 1.0     | January 29, 2021 | Initial release |
+Clonar el repositorio:
 
-## Disclaimer
+```bash
+git clone https://github.com/FerchoCDH29/spfx-requirements-management.git
+```
 
-**THIS CODE IS PROVIDED _AS IS_ WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.**
+Ingresar al proyecto:
 
----
+```bash
+cd spfx-requirements-management
+```
 
-## Minimal Path to Awesome
+Instalar dependencias:
 
-- Clone this repository
-- Ensure that you are at the solution folder
-- in the command-line run:
-  - `npm install -g @rushstack/heft`
-  - `npm install`
-  - `heft start`
+```bash
+npm install
+```
 
-> Include any additional steps as needed.
+## Ejecutar en desarrollo
 
-Other build commands can be listed using `heft --help`.
+Confiar en el certificado de desarrollo:
 
-## Features
+```bash
+heft trust-dev-cert
+```
 
-Description of the extension that expands upon high-level summary above.
+Ejecutar el proyecto:
 
-This extension illustrates the following concepts:
+```bash
+heft start
+```
 
-- topic 1
-- topic 2
-- topic 3
+Después se puede utilizar el Workbench de SharePoint para probar el Web Part.
 
-> Notice that better pictures and documentation will increase the sample usage and the value you are providing for others. Thanks for your submissions advance.
+## Compilar el proyecto
 
-> Share your web part with others through Microsoft 365 Patterns and Practices program to get visibility and exposure. More details on the community, open-source projects and other activities from http://aka.ms/m365pnp.
+Para generar una compilación de producción:
 
-## References
+```bash
+heft build --production
+```
 
-- [Getting started with SharePoint Framework](https://docs.microsoft.com/sharepoint/dev/spfx/set-up-your-developer-tenant)
-- [Building for Microsoft teams](https://docs.microsoft.com/sharepoint/dev/spfx/build-for-teams-overview)
-- [Use Microsoft Graph in your solution](https://docs.microsoft.com/sharepoint/dev/spfx/web-parts/get-started/using-microsoft-graph-apis)
-- [Publish SharePoint Framework applications to the Marketplace](https://docs.microsoft.com/sharepoint/dev/spfx/publish-to-marketplace-overview)
-- [Microsoft 365 Patterns and Practices](https://aka.ms/m365pnp) - Guidance, tooling, samples and open-source controls for your Microsoft 365 development
-- [Heft Documentation](https://heft.rushstack.io/)
+## Generar paquete SPFx
+
+El proyecto utiliza la configuración definida dentro de:
+
+```text
+config/package-solution.json
+```
+
+El paquete generado puede ser utilizado posteriormente para desplegar la solución en el App Catalog de SharePoint.
+
+## Flujo general
+
+```text
+Usuario
+   ↓
+SPFx Web Part
+   ↓
+Formulario de requerimiento
+   ↓
+SharePoint
+   ↓
+Proceso de aprobación
+   ↓
+Power Automate
+```
+
+## Estado del proyecto
+
+Proyecto actualmente en desarrollo.
+
+Se están implementando y mejorando funcionalidades relacionadas con:
+
+* Gestión de requerimientos.
+* Experiencia de usuario.
+* Diseño del formulario.
+* Manejo de documentos adjuntos.
+* Integración con SharePoint.
+* Flujos de aprobación.
+* Gestión de usuarios, roles y aprobadores.
+
+## Repositorio
+
+GitHub:
+
+```text
+https://github.com/FerchoCDH29/spfx-requirements-management
+```
+
+## Autor
+
+**fcardenas**
+
+Proyecto desarrollado como parte de una solución de gestión de requerimientos utilizando tecnologías del ecosistema Microsoft 365.
