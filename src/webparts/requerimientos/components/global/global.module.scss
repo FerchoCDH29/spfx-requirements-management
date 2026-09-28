@@ -1,0 +1,179 @@
+// @import '../../styles/typography.module.scss';
+
+.Base {
+  background: transparent;
+  font-family: var(--font-open-sans);
+}
+
+.HeadingFont {
+  font-family: var(--font-mont);
+}
+
+.BodyFont {
+  font-family: var(--font-open-sans);
+}
+
+.AccentFont {
+  font-family: var(--font-eloquia-text);
+}
+ 
+.FullWidth {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  min-height: calc(100vh - 150px);
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+ 
+.Inner100 {
+  width: 98%;
+  margin-left: auto;
+  margin-right: auto;
+}
+ 
+@media (max-width: 992px) {
+  .Inner100 {
+    width: 98%;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+ 
+.Base :global(.ms-PeoplePicker),
+.Base :global(.ms-BasePicker) {
+  width: 100%;
+}
+ 
+.Base :global(.container-fluid) {
+  padding-left: 0;
+  padding-right: 0;
+}
+ 
+:global(.CanvasComponent) {
+  --page-max-width: 100%;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+ 
+:global([data-automation-id="CanvasZone-SectionContainer"]) {
+  max-width: none !important;
+  width: 100% !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+ 
+:global(.CanvasComponent.LCS .CanvasSection-col) {
+  max-width: none !important;
+  width: 100% !important;
+  flex: 1 1 100% !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+ 
+:global(.SPCanvas-canvas),
+:global(.CanvasZone),
+:global(.CanvasSection) {
+  max-width: none !important;
+  width: 100% !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+ 
+:global(.ControlZone),
+:global(.ControlZone--control) {
+  max-width: none !important;
+  width: 100% !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+// SharePoint inyecta margin/padding en el ControlZone via una clase hash dinámica que cambia en cada build
+:global(.ControlZone) {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+ 
+:global {
+  #spLeftNav,
+  div[data-automationid="SiteNavigation"],
+  nav[aria-label="Navegación del sitio"],
+  nav[aria-label="Site navigation"] {
+    display: none !important;
+  }
+ 
+  .CanvasZone,
+  .CanvasSection,
+  .ControlZone,
+  .SPCanvas {
+    max-width: 100% !important;
+  }
+}
+ 
+:global {
+  .spAppAndPropertyPanelContainer,
+  .SPPageChrome,
+  #spPageChromeAppDiv,
+  #spPageCanvasContent {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+  }
+}
+
+/*
+==========================================================
+LAYOUT CENTRADO SOLO PARA PAGINAS COMPACTAS (HEADER/FOOTER)
+==========================================================
+*/
+
+:global(body.gp-intranet-modo-compacto [data-automation-id="CanvasZone-SectionContainer"]) {
+  // max-width: 1480px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  // padding-left: 24px !important;
+  // padding-right: 24px !important;
+}
+
+:global(body.gp-intranet-modo-compacto .CanvasSection) {
+  justify-content: center !important;
+}
+
+:global(body.gp-intranet-modo-compacto .CanvasSection-col.CanvasSection-xl4),
+:global(body.gp-intranet-modo-compacto .CanvasSection-col.CanvasSection-lg4),
+:global(body.gp-intranet-modo-compacto .CanvasSection-col.CanvasSection-md4) {
+  display: flex !important;
+  justify-content: center !important;
+}
+
+:global(body.gp-intranet-modo-compacto .CanvasSection-col.CanvasSection-xl4 .ControlZone),
+:global(body.gp-intranet-modo-compacto .CanvasSection-col.CanvasSection-lg4 .ControlZone),
+:global(body.gp-intranet-modo-compacto .CanvasSection-col.CanvasSection-md4 .ControlZone) {
+  width: 100% !important;
+  max-width: 430px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+// @media (max-width: 992px) {
+//   :global(body.gp-intranet-modo-compacto [data-automation-id="CanvasZone-SectionContainer"]) {
+//     // padding-left: 14px !important;
+//     // padding-right: 14px !important;
+//   }
+// }
+
+/*
+==========================================================
+OCULTAR ELEMENTOS NATIVOS DE SHAREPOINT
+==========================================================
+*/
+
+:global(#spLeftNav),
+:global(#sp-appBar),
+:global(.sp-appBar),
+:global(.sp-appBar-ngsp),
+:global(div[data-automationid="SiteNavigation"]),
+:global(nav[aria-label="Navegación del sitio"]),
+:global(nav[aria-label="Site navigation"]) {
+  display: none !important;
+}
