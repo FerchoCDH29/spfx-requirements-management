@@ -12,7 +12,7 @@ import { IRequerimientosProps } from './IRequerimientosProps';
 
 type UserRole =
   | 'Admin'
-  | 'Contabilidad'
+  | 'Solicitador'
   | 'Aprobador'
   | 'SinRol';
 
@@ -29,6 +29,9 @@ interface IUser {
   displayName: string;
   email: string;
   role: UserRole;
+  areaId?: number;
+  area?: string;
+  roleId?: number;
 }
 
 interface ISharePointUser {
@@ -164,92 +167,123 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
   /*
    * ===========================
-   * ROL DEL USUARIO
-   * FUENTE: GRUPOS SHAREPOINT
+   * CONFIGURACIÓN DEL USUARIO
+   * FUENTE: LISTA UsuariosRoles
    * ===========================
    */
 
-  const getCurrentUserRole =
-    async (): Promise<UserRole> => {
+  const getCurrentUserConfiguration =
+    async (currentUserId: number): Promise<{
+      role: UserRole;
+      areaId?: number;
+      area?: string;
+      roleId?: number;
+    }> => {
 
-      try {
+      const usuariosRolesUrl =
+        `${context.pageContext.web.absoluteUrl}` +
+        `/_api/web/lists/getbytitle('UsuariosRoles')/items` +
+        `?$select=Id,UsuarioId,Area0Id,RolId,Activo` +
+        `&$filter=UsuarioId eq ${currentUserId} and Activo eq 1` +
+        `&$top=1`;
 
-        const groupsUrl =
-          `${context.pageContext.web.absoluteUrl}` +
-          `/_api/web/currentuser/groups?$select=Title`;
+      const response = await context.spHttpClient.get(
+        usuariosRolesUrl,
+        SPHttpClient.configurations.v1,
+        { headers: { Accept: 'application/json;odata=nometadata' } }
+      );
 
-        const response =
-          await context.spHttpClient.get(
-            groupsUrl,
-            SPHttpClient.configurations.v1,
-            {
-              headers: {
-                Accept:
-                  'application/json;odata=nometadata'
-              }
-            }
-          );
-
-        if (!response.ok) {
-          throw new Error(
-            `No se pudieron obtener los grupos. HTTP ${response.status}`
-          );
-        }
-
-        const data =
-          await response.json();
-
-        const groupNames: string[] =
-          data.value.map(
-            (group: { Title: string }) =>
-              group.Title
-          );
-
-        console.log(
-          'GRUPOS DEL USUARIO:',
-          groupNames
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `No se pudo obtener la configuración del usuario. HTTP ${response.status}: ${errorText}`
         );
-
-        /*
-         * Prioridad de rol:
-         * Admin > Aprobador > Contabilidad
-         */
-
-        if (
-          groupNames.indexOf(
-            'GrupoAdmin'
-          ) !== -1
-        ) {
-          return 'Admin';
-        }
-
-        if (
-          groupNames.indexOf(
-            'GrupoAprobadores'
-          ) !== -1
-        ) {
-          return 'Aprobador';
-        }
-
-        if (
-          groupNames.indexOf(
-            'GrupoContabilidad'
-          ) !== -1
-        ) {
-          return 'Contabilidad';
-        }
-
-        return 'SinRol';
-
-      } catch (error) {
-
-        console.error(
-          'Error obteniendo rol:',
-          error
-        );
-
-        return 'SinRol';
       }
+
+      const data = await response.json();
+      const usuarioRol = data.value?.[0] as {
+        Area0Id?: number;
+        RolId?: number;
+        Activo?: boolean;
+      } | undefined;
+
+      if (!usuarioRol || !usuarioRol.Activo) {
+        return { role: 'SinRol' };
+      }
+
+      let area: string | undefined;
+      if (usuarioRol.Area0Id) {
+        const areaUrl =
+          `${context.pageContext.web.absoluteUrl}` +
+          `/_api/web/lists/getbytitle('Areas')/items(${usuarioRol.Area0Id})` +
+          `?$select=Id,NombreArea,Activo`;
+
+        const areaResponse = await context.spHttpClient.get(
+          areaUrl,
+          SPHttpClient.configurations.v1,
+          { headers: { Accept: 'application/json;odata=nometadata' } }
+        );
+
+        if (!areaResponse.ok) {
+          const errorText = await areaResponse.text();
+          throw new Error(
+            `No se pudo obtener el área del usuario. HTTP ${areaResponse.status}: ${errorText}`
+          );
+        }
+
+        const areaData = await areaResponse.json();
+        if (areaData.Activo !== false) {
+          area = areaData.NombreArea;
+        }
+      }
+
+      let role: UserRole = 'SinRol';
+      if (usuarioRol.RolId) {
+        const rolUrl =
+          `${context.pageContext.web.absoluteUrl}` +
+          `/_api/web/lists/getbytitle('Rol')/items(${usuarioRol.RolId})` +
+          `?$select=Id,nombreRol,Activo`;
+
+        const rolResponse = await context.spHttpClient.get(
+          rolUrl,
+          SPHttpClient.configurations.v1,
+          { headers: { Accept: 'application/json;odata=nometadata' } }
+        );
+
+        if (!rolResponse.ok) {
+          const errorText = await rolResponse.text();
+          throw new Error(
+            `No se pudo obtener el rol del usuario. HTTP ${rolResponse.status}: ${errorText}`
+          );
+        }
+
+        const rolData = await rolResponse.json();
+        const nombreRol = String(rolData.nombreRol || '').trim().toLowerCase();
+
+        if (rolData.Activo !== false) {
+          if (nombreRol === 'admin' || nombreRol === 'administrador') {
+            role = 'Admin';
+          } else if (nombreRol === 'aprobador') {
+            role = 'Aprobador';
+          } else if (nombreRol === 'solicitador' || nombreRol === 'solicitante') {
+            role = 'Solicitador';
+          }
+        }
+      }
+
+      console.log('CONFIGURACIÓN USUARIO:', {
+        role,
+        areaId: usuarioRol.Area0Id,
+        area,
+        roleId: usuarioRol.RolId
+      });
+
+      return {
+        role,
+        areaId: usuarioRol.Area0Id,
+        area,
+        roleId: usuarioRol.RolId
+      };
     };
 
   /*
@@ -260,61 +294,49 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
    */
 
   const loadCategories =
-    async (): Promise<void> => {
+    async (areaId?: number, loadAll: boolean = false): Promise<void> => {
 
-      const categoriesUrl =
+      if (!loadAll && !areaId) {
+        setCategories([]);
+        return;
+      }
+
+      let categoriesUrl =
         `${context.pageContext.web.absoluteUrl}` +
-        `/_api/web/lists/getbytitle('Categorias')/items?$top=100`;
+        `/_api/web/lists/getbytitle('Categorias')/items` +
+        `?$select=Id,NombreCategoria,AreaId,Activo` +
+        `&$orderby=NombreCategoria asc` +
+        `&$top=500`;
 
-      const response =
-        await context.spHttpClient.get(
-          categoriesUrl,
-          SPHttpClient.configurations.v1,
-          {
-            headers: {
-              Accept:
-                'application/json;odata=nometadata'
-            }
-          }
-        );
+      const filter = loadAll
+        ? `Activo eq 1`
+        : `AreaId eq ${areaId} and Activo eq 1`;
+
+      categoriesUrl += `&$filter=${encodeURIComponent(filter)}`;
+
+      const response = await context.spHttpClient.get(
+        categoriesUrl,
+        SPHttpClient.configurations.v1,
+        { headers: { Accept: 'application/json;odata=nometadata' } }
+      );
 
       if (!response.ok) {
-
-        const errorText =
-          await response.text();
-
+        const errorText = await response.text();
         throw new Error(
-          `Error cargando categorías. ` +
-          `HTTP ${response.status}: ${errorText}`
+          `Error cargando categorías. HTTP ${response.status}: ${errorText}`
         );
       }
 
-      const data =
-        await response.json();
-
-      const mappedCategories: ICategory[] =
-        data.value.map(
-          (item: {
-            Id: number;
-            NombreCategoria?: string;
-            Title?: string;
-          }) => ({
-            Id: item.Id,
-            NombreCategoria:
-              item.NombreCategoria ||
-              item.Title ||
-              `Categoría ${item.Id}`
-          })
-        );
-
-      console.log(
-        'CATEGORIAS SHAREPOINT:',
-        mappedCategories
+      const data = await response.json();
+      const mappedCategories: ICategory[] = data.value.map(
+        (item: { Id: number; NombreCategoria?: string }) => ({
+          Id: item.Id,
+          NombreCategoria: item.NombreCategoria || `Categoría ${item.Id}`
+        })
       );
 
-      setCategories(
-        mappedCategories
-      );
+      console.log('CATEGORÍAS DEL ÁREA:', mappedCategories);
+      setCategories(mappedCategories);
     };
 
   /*
@@ -481,33 +503,35 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
               await currentUserResponse.json();
 
           /*
-           * Rol desde grupos SharePoint
+           * Rol y área desde UsuariosRoles
            */
 
-          const userRole =
-            await getCurrentUserRole();
+          const userConfig =
+            await getCurrentUserConfiguration(
+              currentUser.Id
+            );
+
+          const userRole = userConfig.role;
 
           setUser({
-            id:
-              currentUser.Id,
-
-            displayName:
-              currentUser.Title ||
-              'Usuario',
-
-            email:
-              currentUser.Email ||
-              '',
-
-            role:
-              userRole
+            id: currentUser.Id,
+            displayName: currentUser.Title || 'Usuario',
+            email: currentUser.Email || '',
+            role: userRole,
+            areaId: userConfig.areaId,
+            area: userConfig.area,
+            roleId: userConfig.roleId
           });
 
           /*
-           * Categorías desde lista SharePoint
+           * Categorías activas del área del usuario.
+           * Admin puede visualizar todas las categorías.
            */
 
-          await loadCategories();
+          await loadCategories(
+            userConfig.areaId,
+            userRole === 'Admin'
+          );
 
           /*
            * Vista inicial según rol
@@ -612,7 +636,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         }
 
         if (
-          user.role !== 'Contabilidad' &&
+          user.role !== 'Solicitador' &&
           user.role !== 'Admin'
         ) {
           throw new Error(
@@ -806,12 +830,12 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
         /*
          * Después de crear:
-         * Contabilidad -> Mis solicitudes
+         * Solicitador -> Mis solicitudes
          * Admin -> Todas
          */
 
         if (
-          user.role === 'Contabilidad'
+          user.role === 'Solicitador'
         ) {
 
           setActiveView('mis');
@@ -1020,6 +1044,13 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 </strong>
               </div>
 
+              {user.area && (
+                <div className={styles.userMeta}>
+                  <span>Área:</span>
+                  <strong>{user.area}</strong>
+                </div>
+              )}
+
             </div>
 
           </div>
@@ -1057,9 +1088,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         </div>
       )}
 
-      {/* NAVEGACIÓN CONTABILIDAD */}
+      {/* NAVEGACIÓN SOLICITADOR */}
 
-      {user?.role === 'Contabilidad' && (
+      {user?.role === 'Solicitador' && (
 
         <div className={styles.tabs}>
 
@@ -1171,7 +1202,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       {/* FORMULARIO NUEVA SOLICITUD */}
 
       {(
-        user?.role === 'Contabilidad' ||
+        user?.role === 'Solicitador' ||
         user?.role === 'Admin'
       ) &&
       activeView === 'nueva' && (
