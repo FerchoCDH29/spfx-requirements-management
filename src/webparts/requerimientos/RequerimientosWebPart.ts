@@ -12,6 +12,11 @@ import * as strings from 'RequerimientosWebPartStrings';
 import Requerimientos from './components/Requerimientos';
 import { IRequerimientosProps } from './components/IRequerimientosProps';
 
+import AdminSharePoint, {
+  IAdminSharePointProps
+} from './components/AdminSharePoint';
+
+
 export interface IRequerimientosWebPartProps {
   description: string;
 }
@@ -22,14 +27,48 @@ export default class RequerimientosWebPart extends BaseClientSideWebPart<IRequer
   private _environmentMessage: string = '';
 
   public render(): void {
-    const element: React.ReactElement<IRequerimientosProps> =
-      React.createElement(Requerimientos, {
-        context: this.context
-      });
 
-  ReactDom.render(element, this.domElement);
-  
+  const parametros =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  const modoAdmin =
+    parametros.get('admin') === '1';
+
+  if (modoAdmin) {
+
+    const element:
+      React.ReactElement<IAdminSharePointProps> =
+      React.createElement(
+        AdminSharePoint,
+        {
+          context: this.context
+        }
+      );
+
+    ReactDom.render(
+      element,
+      this.domElement
+    );
+
+    return;
   }
+
+  const element:
+    React.ReactElement<IRequerimientosProps> =
+    React.createElement(
+      Requerimientos,
+      {
+        context: this.context
+      }
+    );
+
+  ReactDom.render(
+    element,
+    this.domElement
+  );
+}
 
   protected onInit(): Promise<void> {
     return this._getEnvironmentMessage().then(message => {
