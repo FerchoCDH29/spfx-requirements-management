@@ -743,6 +743,51 @@ Attachments: cotizacion.AttachmentFiles || []
     }
   };
 
+  const crearOrdenCompraSiNoExiste = async (
+    requerimiento: IRequerimientoItem,
+    cotizacionId: number,
+    solicitadoPorId: number
+  ): Promise<void> => {
+    const filter = encodeURIComponent(
+      `RequerimientoId eq ${requerimiento.Id} and Activo eq 1`
+    );
+
+    const existingUrl =
+      `${context.pageContext.web.absoluteUrl}` +
+      `/_api/web/lists/getbytitle('OrdenesCompra')/items` +
+      `?$select=Id&$filter=${filter}&$top=1`;
+
+    const existingResponse = await context.spHttpClient.get(
+      existingUrl,
+      SPHttpClient.configurations.v1,
+      { headers: { Accept: 'application/json;odata=nometadata' } }
+    );
+
+    if (!existingResponse.ok) {
+      throw new Error(
+        `No se pudo verificar la orden de compra existente. HTTP ${existingResponse.status}: ${await existingResponse.text()}`
+      );
+    }
+
+    const existingData = await existingResponse.json();
+
+    if (existingData.value?.length > 0) {
+      return;
+    }
+
+    await createListItem('OrdenesCompra', {
+      Title: `OC-REQ-${requerimiento.Id}`,
+      RequerimientoId: requerimiento.Id,
+      CotizacionId: cotizacionId,
+      TipoOrden: requerimiento.Recurrente ? 'GenerarOC' : 'SolicitarOC',
+      TipoDocumento: requerimiento.Recurrente ? 'Contrato' : 'OCV',
+      EstadoOC: 'Pendiente',
+      FechaSolicitud: new Date().toISOString(),
+      SolicitadoPorId: solicitadoPorId,
+      Activo: true
+    });
+  };
+
   const decidirRequerimiento = async (aprobar: boolean): Promise<void> => {
     if (!selectedRequerimiento || !user) return;
 
@@ -766,6 +811,16 @@ Attachments: cotizacion.AttachmentFiles || []
       return;
     }
 
+    if (aprobar) {
+      const mensajeConfirmacion = selectedRequerimiento.Recurrente
+        ? 'Al aprobar este requerimiento se generará automáticamente la orden de compra asociada a un Contrato con la cotización seleccionada. ¿Deseas continuar?'
+        : 'Al aprobar este requerimiento se generará automáticamente la solicitud de orden de compra (OCV) con la cotización seleccionada. ¿Deseas continuar?';
+
+      if (!window.confirm(mensajeConfirmacion)) {
+        return;
+      }
+    }
+
     const requerimientoId = selectedRequerimiento.Id;
 
     try {
@@ -781,8 +836,19 @@ Attachments: cotizacion.AttachmentFiles || []
         }
       }
 
+      if (aprobar && cotizacionSeleccionadaId) {
+        await crearOrdenCompraSiNoExiste(
+          selectedRequerimiento,
+          cotizacionSeleccionadaId,
+          user.id
+        );
+      }
+
       await updateListItem('Requerimientos', requerimientoId, {
         Estado: aprobar ? 'Aprobado' : 'Rechazado',
+        EtapaActual: aprobar
+          ? (selectedRequerimiento.Recurrente ? 'GenerarOC' : 'SolicitarOC')
+          : 'Aprobacion',
         FechaAprobacion: new Date().toISOString(),
         ComentarioAprobador: comentarioAprobador.trim(),
         DecisionPorId: user.id
@@ -796,7 +862,9 @@ Attachments: cotizacion.AttachmentFiles || []
 
       setMessage(
         aprobar
-          ? `Requerimiento #${requerimientoId} aprobado con la cotización seleccionada.`
+          ? selectedRequerimiento.Recurrente
+            ? `Requerimiento #${requerimientoId} aprobado. Se generó la orden de compra asociada a Contrato.`
+            : `Requerimiento #${requerimientoId} aprobado. Se generó la solicitud de orden de compra OCV.`
           : `Requerimiento #${requerimientoId} rechazado correctamente.`
       );
     } catch (error) {
@@ -808,15 +876,15 @@ Attachments: cotizacion.AttachmentFiles || []
 
   const getEtapas = (item: IRequerimientoItem): string[] =>
     item.Recurrente
-      ? ['Solicitud', 'Aprobacion', 'Contrato', 'OrdenCompra', 'Facturacion', 'Finalizado']
-      : ['Solicitud', 'Aprobacion', 'OrdenCompra', 'Facturacion', 'Finalizado'];
+      ? ['Solicitud', 'Aprobacion', 'GenerarOC', 'Facturacion', 'Finalizado']
+      : ['Solicitud', 'Aprobacion', 'SolicitarOC', 'Facturacion', 'Finalizado'];
 
   const getEtapaLabel = (etapa?: string): string => {
     const labels: Record<string, string> = {
       Solicitud: 'Solicitud',
       Aprobacion: 'Aprobación',
-      Contrato: 'Contrato',
-      OrdenCompra: 'Orden de compra',
+      GenerarOC: 'Generar orden de compra',
+      SolicitarOC: 'Solicitar orden de compra',
       Facturacion: 'Facturación',
       Finalizado: 'Finalizado'
     };
@@ -1384,7 +1452,7 @@ Attachments: cotizacion.AttachmentFiles || []
                   <span className={styles.toggleDot} />
                   <span>
                     <strong>No recurrente</strong>
-                    <small>Pasa directo a orden de compra</small>
+                    <small>Compra única o ajuste de contrato · Genera solicitud OCV</small>
                   </span>
                 </button>
 
@@ -1396,7 +1464,7 @@ Attachments: cotizacion.AttachmentFiles || []
                   <span className={styles.toggleDot} />
                   <span>
                     <strong>Recurrente</strong>
-                    <small>Requiere contrato antes de la orden de compra</small>
+                    <small>Servicio o compra periódica · Genera orden asociada a Contrato</small>
                   </span>
                 </button>
               </div>
@@ -1763,6 +1831,7 @@ Attachments: cotizacion.AttachmentFiles || []
                   <h3>Aprobar o rechazar requerimiento</h3>
                   <p>
                     Para aprobar, selecciona primero una de las cotizaciones mostradas arriba.
+                    Al confirmar la aprobación se generará automáticamente la orden correspondiente según el tipo de proceso.
                     Al rechazar, debes ingresar un comentario.
                   </p>
                   <div className={styles.formGroup}>
