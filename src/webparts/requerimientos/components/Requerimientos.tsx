@@ -89,6 +89,40 @@ interface IRequerimientoItem {
   };
 }
 
+interface IItemCotizacionDetalle {
+  Id: number;
+  Descripcion: string;
+  Cantidad: number;
+  ValorUnitario: number;
+  ValorTotal: number;
+  Seleccionado: boolean;
+}
+
+interface IAdjuntoCotizacion {
+  FileName: string;
+  ServerRelativeUrl: string;
+}
+
+interface ICotizacionDetalle {
+  Id: number;
+  Title: string;
+  Descripcion: string;
+  NumeroCotizacionProveedor?: string;
+  CodigoCotizacionInterno?: string;
+  ValorTotal: number;
+  Seleccionada: boolean;
+  FechaCotizacion?: string;
+
+  Proveedor?: {
+    Id: number;
+    RazonSocial: string;
+  };
+
+  Attachments: IAdjuntoCotizacion[];
+  Items: IItemCotizacionDetalle[];
+}
+
+
 const Requerimientos: React.FC<IRequerimientosProps> = ({
   context
 }) => {
@@ -127,6 +161,12 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
   const [selectedRequerimiento, setSelectedRequerimiento] =
     useState<IRequerimientoItem | null>(null);
+
+  const [cotizacionesDetalle, setCotizacionesDetalle] =
+    useState<ICotizacionDetalle[]>([]);
+
+  const [loadingDetalle, setLoadingDetalle] =
+    useState<boolean>(false);
 
   const [searchTerm, setSearchTerm] =
     useState<string>('');
@@ -551,6 +591,201 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       }
     };
 
+    const loadDetalleRequerimiento =
+  async (requerimientoId: number): Promise<void> => {
+
+    try {
+
+      setLoadingDetalle(true);
+      setCotizacionesDetalle([]);
+
+      /*
+       * ===========================
+       * COTIZACIONES
+       * ===========================
+       */
+
+      const cotizacionesUrl =
+        `${context.pageContext.web.absoluteUrl}` +
+        `/_api/web/lists/getbytitle('Cotizaciones')/items` +
+        `?$select=` +
+        `Id,Title,Descripcion,NumeroCotizacionProveedor,` +
+        `CodigoCotizacionInterno,ValorTotal,Seleccionada,FechaCotizacion,` +
+        `Proveedor/Id,Proveedor/RazonSocial,` +
+        `AttachmentFiles/FileName,AttachmentFiles/ServerRelativeUrl` +
+        `&$expand=Proveedor,AttachmentFiles` +
+        `&$filter=${encodeURIComponent(
+          `RequerimientoId eq ${requerimientoId} and Activo eq 1`
+        )}` +
+        `&$orderby=Id asc`;
+
+      const cotizacionesResponse =
+        await context.spHttpClient.get(
+          cotizacionesUrl,
+          SPHttpClient.configurations.v1,
+          {
+            headers: {
+              Accept: 'application/json;odata=nometadata'
+            }
+          }
+        );
+
+      if (!cotizacionesResponse.ok) {
+
+        const errorText =
+          await cotizacionesResponse.text();
+
+        throw new Error(
+          `Error cargando cotizaciones. HTTP ` +
+          `${cotizacionesResponse.status}: ${errorText}`
+        );
+      }
+
+      const cotizacionesData =
+        await cotizacionesResponse.json();
+
+      /*
+       * ===========================
+       * ITEMS DE CADA COTIZACIÓN
+       * ===========================
+       */
+
+      const detalle: ICotizacionDetalle[] =
+        await Promise.all(
+          cotizacionesData.value.map(
+            async (cotizacion: {
+              Id: number;
+              Title: string;
+              Descripcion?: string;
+              NumeroCotizacionProveedor?: string;
+              CodigoCotizacionInterno?: string;
+              ValorTotal?: number;
+              Seleccionada?: boolean;
+              FechaCotizacion?: string;
+              Proveedor?: {
+                Id: number;
+                RazonSocial?: string;
+              };
+              AttachmentFiles?: IAdjuntoCotizacion[];
+            }): Promise<ICotizacionDetalle> => {
+
+              const itemsUrl =
+                `${context.pageContext.web.absoluteUrl}` +
+                `/_api/web/lists/getbytitle('ItemCotizaciones')/items` +
+                `?$select=` +
+                `Id,Descripcion,Cantidad,ValorUnitario,ValorTotal,Seleccionado` +
+                `&$filter=${encodeURIComponent(
+                  `CotizacionId eq ${cotizacion.Id}`
+                )}` +
+                `&$orderby=Id asc`;
+
+              const itemsResponse =
+                await context.spHttpClient.get(
+                  itemsUrl,
+                  SPHttpClient.configurations.v1,
+                  {
+                    headers: {
+                      Accept:
+                        'application/json;odata=nometadata'
+                    }
+                  }
+                );
+
+              if (!itemsResponse.ok) {
+
+                const errorText =
+                  await itemsResponse.text();
+
+                throw new Error(
+                  `Error cargando ítems de la cotización ` +
+                  `#${cotizacion.Id}. HTTP ` +
+                  `${itemsResponse.status}: ${errorText}`
+                );
+              }
+
+              const itemsData =
+                await itemsResponse.json();
+
+              return {
+                Id: cotizacion.Id,
+                Title: cotizacion.Title,
+                Descripcion:
+                  cotizacion.Descripcion || '',
+                NumeroCotizacionProveedor:
+                  cotizacion.NumeroCotizacionProveedor,
+                CodigoCotizacionInterno:
+                  cotizacion.CodigoCotizacionInterno,
+                ValorTotal:
+                  Number(cotizacion.ValorTotal || 0),
+                Seleccionada:
+                  !!cotizacion.Seleccionada,
+                FechaCotizacion:
+                  cotizacion.FechaCotizacion,
+
+                Proveedor: cotizacion.Proveedor
+                  ? {
+                      Id: cotizacion.Proveedor.Id,
+                      RazonSocial:
+                        cotizacion.Proveedor.RazonSocial ||
+                        'Proveedor'
+                    }
+                  : undefined,
+
+                Attachments:
+                  cotizacion.AttachmentFiles || [],
+
+                Items:
+                  itemsData.value.map(
+                    (item: {
+                      Id: number;
+                      Descripcion?: string;
+                      Cantidad?: number;
+                      ValorUnitario?: number;
+                      ValorTotal?: number;
+                      Seleccionado?: boolean;
+                    }): IItemCotizacionDetalle => ({
+                      Id: item.Id,
+                      Descripcion:
+                        item.Descripcion || '',
+                      Cantidad:
+                        Number(item.Cantidad || 0),
+                      ValorUnitario:
+                        Number(item.ValorUnitario || 0),
+                      ValorTotal:
+                        Number(item.ValorTotal || 0),
+                      Seleccionado:
+                        !!item.Seleccionado
+                    })
+                  )
+              };
+            }
+          )
+        );
+
+      console.log(
+        'DETALLE COTIZACIONES:',
+        detalle
+      );
+
+      setCotizacionesDetalle(detalle);
+
+    } catch (error) {
+
+      console.error(
+        'Error cargando detalle:',
+        error
+      );
+
+      setMessage(
+        getErrorMessage(error)
+      );
+
+    } finally {
+
+      setLoadingDetalle(false);
+    }
+  };
+
   /*
    * ===========================
    * CARGA INICIAL
@@ -750,6 +985,18 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       item.Estado.toLowerCase().indexOf(term) >= 0
     );
   });
+
+
+  const abrirRequerimiento =
+  (requerimiento: IRequerimientoItem): void => {
+
+    setSelectedRequerimiento(requerimiento);
+    setMessage('');
+
+    void loadDetalleRequerimiento(
+      requerimiento.Id
+    );
+  };
 
   /*
    * ===========================
@@ -1674,8 +1921,176 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                     ? 'El requerimiento permanece como borrador y todavía no ha ingresado al flujo de aprobación.'
                     : `El expediente se encuentra actualmente en ${getEtapaLabel(selectedRequerimiento.EtapaActual).toLowerCase()}.`}
                 </p>
-              </aside>
+                            </aside>
             </div>
+
+            {/* DETALLE DE COTIZACIONES */}
+
+            <section className={styles.detailCard}>
+
+              <span className={styles.eyebrow}>
+                COTIZACIONES
+              </span>
+
+              <h3>Propuestas recibidas</h3>
+
+              {loadingDetalle ? (
+
+                <div className={styles.emptyState}>
+                  Cargando cotizaciones...
+                </div>
+
+              ) : cotizacionesDetalle.length === 0 ? (
+
+                <div className={styles.emptyState}>
+                  Este requerimiento no tiene cotizaciones registradas.
+                </div>
+
+              ) : (
+
+                <div className={styles.quotationList}>
+
+                  {cotizacionesDetalle.map(
+                    (cotizacion, cotizacionIndex) => (
+
+                      <div
+                        key={cotizacion.Id}
+                        className={styles.quotationCard}
+                      >
+
+                        <div className={styles.quotationHeader}>
+
+                          <div>
+
+                            <span className={styles.quotationLabel}>
+                              COTIZACIÓN {cotizacionIndex + 1}
+                            </span>
+
+                            <h3>
+                              {cotizacion.Proveedor?.RazonSocial ||
+                                'Proveedor no registrado'}
+                            </h3>
+
+                            {cotizacion.CodigoCotizacionInterno && (
+                              <small>
+                                {cotizacion.CodigoCotizacionInterno}
+                              </small>
+                            )}
+
+                          </div>
+
+                          <div className={styles.quotationAmount}>
+                            <small>Total cotización</small>
+                            <strong>
+                              {formatCurrency(cotizacion.ValorTotal)}
+                            </strong>
+                          </div>
+
+                        </div>
+
+                        <div className={styles.descriptionBox}>
+                          <small>Descripción</small>
+                          <p>
+                            {cotizacion.Descripcion || 'Sin descripción'}
+                          </p>
+                        </div>
+
+                        {cotizacion.FechaCotizacion && (
+                          <div className={styles.descriptionBox}>
+                            <small>Fecha de cotización</small>
+                            <p>
+                              {new Date(
+                                cotizacion.FechaCotizacion
+                              ).toLocaleDateString('es-EC')}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className={styles.itemsSection}>
+
+                          <div className={styles.itemsHeader}>
+                            <div>
+                              <strong>Detalle de ítems</strong>
+                              <span>
+                                {cotizacion.Items.length}{' '}
+                                {cotizacion.Items.length === 1
+                                  ? 'ítem'
+                                  : 'ítems'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className={styles.itemsTableHeader}>
+                            <span>Descripción</span>
+                            <span>Cantidad</span>
+                            <span>Valor unitario</span>
+                            <span>Total</span>
+                            <span />
+                          </div>
+
+                          {cotizacion.Items.map((item) => (
+
+                            <div
+                              key={item.Id}
+                              className={styles.itemRow}
+                            >
+
+                              <span>{item.Descripcion}</span>
+
+                              <span>{item.Cantidad}</span>
+
+                              <span>
+                                {formatCurrency(item.ValorUnitario)}
+                              </span>
+
+                              <strong className={styles.itemTotal}>
+                                {formatCurrency(item.ValorTotal)}
+                              </strong>
+
+                              <span />
+
+                            </div>
+
+                          ))}
+
+                        </div>
+
+                        {cotizacion.Attachments.length > 0 && (
+
+                          <div className={styles.quotationFooter}>
+
+                            {cotizacion.Attachments.map((archivo) => (
+
+                              <a
+                                key={archivo.ServerRelativeUrl}
+                                href={
+                                  window.location.origin +
+                                  archivo.ServerRelativeUrl
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={styles.secondaryButton}
+                              >
+                                Ver PDF · {archivo.FileName}
+                              </a>
+
+                            ))}
+
+                          </div>
+
+                        )}
+
+                      </div>
+
+                    )
+                  )}
+
+                </div>
+
+              )}
+
+            </section>
+
           </div>
         ) : (
           <div className={styles.requestsWorkspace}>
@@ -1712,7 +2127,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                   <thead><tr><th>ID</th><th>Requerimiento</th><th>Categoría</th><th>Monto</th><th>Etapa actual</th><th>Estado</th><th>Fecha</th><th /></tr></thead>
                   <tbody>
                     {filteredRequerimientos.map((requerimiento: IRequerimientoItem) => (
-                      <tr key={requerimiento.Id} className={styles.clickableRow} onClick={() => setSelectedRequerimiento(requerimiento)}>
+                      <tr key={requerimiento.Id} className={styles.clickableRow} onClick={() => abrirRequerimiento(requerimiento)}>
                         <td><strong>#{requerimiento.Id}</strong></td>
                         <td><div className={styles.requestTitle}>{requerimiento.Descripcion}</div><small>{requerimiento.Solicitante?.Title || 'Sin solicitante'}</small></td>
                         <td>{getCategoriaNombre(requerimiento.CategoriaId)}</td>
@@ -1720,7 +2135,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                         <td><span className={styles.stageBadge}>{getEtapaLabel(requerimiento.EtapaActual)}</span></td>
                         <td><span className={getEstadoClass(requerimiento.Estado)}>{requerimiento.Estado}</span></td>
                         <td>{new Date(requerimiento.Created).toLocaleDateString('es-EC')}</td>
-                        <td><button type="button" className={styles.viewButton} onClick={(e) => { e.stopPropagation(); setSelectedRequerimiento(requerimiento); }}>Ver →</button></td>
+                        <td><button type="button" className={styles.viewButton} onClick={(e) => { e.stopPropagation(); abrirRequerimiento(requerimiento); }}>Ver →</button></td>
                       </tr>
                     ))}
                   </tbody>
