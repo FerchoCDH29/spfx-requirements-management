@@ -62,6 +62,14 @@ interface IRequerimientoItem {
   Recurrente: boolean;
   Created: string;
   EtapaActual?: string;
+  FechaAprobacion?: string;
+  ComentarioAprobador?: string;
+
+  DecisionPor?: {
+    Id: number;
+    Title: string;
+    EMail?: string;
+  };
 
   Solicitante?: {
     Id: number;
@@ -443,9 +451,10 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           `/_api/web/lists/getbytitle('Requerimientos')/items` +
           `?$select=` +
           `Id,Title,Descripcion,CategoriaId,ValorTotal,Estado,` +
-          `Recurrente,Created,EtapaActual,` +
+          `Recurrente,Created,EtapaActual,FechaAprobacion,ComentarioAprobador,` +
+          `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
           `Solicitante/Id,Solicitante/Title,Solicitante/EMail` +
-          `&$expand=Solicitante` +
+          `&$expand=Solicitante,DecisionPor` +
           `&$orderby=Created desc` +
           `&$top=500`;
 
@@ -775,7 +784,8 @@ Attachments: cotizacion.AttachmentFiles || []
       await updateListItem('Requerimientos', requerimientoId, {
         Estado: aprobar ? 'Aprobado' : 'Rechazado',
         FechaAprobacion: new Date().toISOString(),
-        ComentarioAprobador: comentarioAprobador.trim()
+        ComentarioAprobador: comentarioAprobador.trim(),
+        DecisionPorId: user.id
       });
 
       setSelectedRequerimiento(null);
@@ -1567,6 +1577,31 @@ Attachments: cotizacion.AttachmentFiles || []
                   <div><small>Etapa actual</small><strong>{getEtapaLabel(selectedRequerimiento.EtapaActual)}</strong></div>
                   <div><small>Estado</small><strong>{selectedRequerimiento.Estado}</strong></div>
                 </div>
+
+                {(selectedRequerimiento.Estado === 'Aprobado' ||
+                  selectedRequerimiento.Estado === 'Rechazado') && (
+                  <div className={styles.descriptionBox}>
+                    <small>Decisión del aprobador</small>
+                    <p>
+                      <strong>
+                        {selectedRequerimiento.Estado === 'Aprobado'
+                          ? 'Aprobado por'
+                          : 'Rechazado por'}
+                      </strong>{' '}
+                      {selectedRequerimiento.DecisionPor?.Title || 'Sin información'}
+                      {selectedRequerimiento.FechaAprobacion && (
+                        <>
+                          {' · '}
+                          {new Date(selectedRequerimiento.FechaAprobacion).toLocaleDateString('es-EC')}
+                        </>
+                      )}
+                    </p>
+                    {selectedRequerimiento.ComentarioAprobador && (
+                      <p>{selectedRequerimiento.ComentarioAprobador}</p>
+                    )}
+                  </div>
+                )}
+
                 <div className={styles.descriptionBox}>
                   <small>Descripción</small>
                   <p>{selectedRequerimiento.Descripcion}</p>
