@@ -1823,7 +1823,7 @@ Attachments: cotizacion.AttachmentFiles || []
                 <div className={styles.emptyState}>No existen solicitudes para mostrar.</div>
               ) : (
                 <table className={styles.requestsTable}>
-                  <thead><tr><th>ID</th><th>Requerimiento</th><th>Categoría</th><th>Promedio cotizaciones</th><th>Etapa actual</th><th>Estado</th><th>Fecha</th><th /></tr></thead>
+                  <thead><tr><th>ID</th><th>Requerimiento</th><th>Categoría</th><th>Promedio cotizaciones</th><th>Etapa actual</th><th>Estado</th><th>Decisión</th><th>Fecha</th><th /></tr></thead>
                   <tbody>
                     {filteredRequerimientos.map((requerimiento: IRequerimientoItem) => (
                       <tr key={requerimiento.Id} className={styles.clickableRow} onClick={() => abrirRequerimiento(requerimiento)}>
@@ -1833,7 +1833,22 @@ Attachments: cotizacion.AttachmentFiles || []
                         <td><strong>{formatCurrency(requerimiento.ValorTotal)}</strong></td>
                         <td><span className={styles.stageBadge}>{getEtapaLabel(requerimiento.EtapaActual)}</span></td>
                         <td><span className={getEstadoClass(requerimiento.Estado)}>{requerimiento.Estado}</span></td>
-                        <td>{new Date(requerimiento.Created).toLocaleDateString('es-EC')}</td>
+                        <td>
+                          {requerimiento.Estado === 'Aprobado' && requerimiento.DecisionPor
+                            ? `Aprobado por ${requerimiento.DecisionPor.Title}`
+                            : requerimiento.Estado === 'Rechazado' && requerimiento.DecisionPor
+                              ? `Rechazado por ${requerimiento.DecisionPor.Title}`
+                              : requerimiento.Estado === 'Enviado Aprobacion'
+                                ? 'Pendiente de decisión'
+                                : '—'}
+                        </td>
+                        <td>
+                          {new Date(
+                            (requerimiento.Estado === 'Aprobado' || requerimiento.Estado === 'Rechazado') && requerimiento.FechaAprobacion
+                              ? requerimiento.FechaAprobacion
+                              : requerimiento.Created
+                          ).toLocaleDateString('es-EC')}
+                        </td>
                         <td><button type="button" className={styles.viewButton} onClick={(e) => { e.stopPropagation(); abrirRequerimiento(requerimiento); }}>Ver →</button></td>
                       </tr>
                     ))}
