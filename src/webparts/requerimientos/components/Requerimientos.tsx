@@ -1,10 +1,7 @@
 import * as React from 'react';
 import './global/global.module.scss';
 import { useEffect, useState } from 'react';
-import {
-  SPHttpClient,
-  SPHttpClientResponse
-} from '@microsoft/sp-http';
+import { SPHttpClient } from '@microsoft/sp-http';
 
 import styles from './Requerimientos.module.scss';
 import inovaLogo from '../assets/inova-logo.png';
@@ -49,26 +46,10 @@ interface ICategory {
   AprobadorPruebaId?: number;
 }
 
-interface IProveedor {
-  Id: number;
-  RazonSocial: string;
-  RUC?: string;
-}
-
-interface IItemCotizacionForm {
-  key: string;
-  descripcion: string;
-  cantidad: string;
-  valorUnitario: string;
-}
-
 interface ICotizacionForm {
   key: string;
-  proveedorId: string;
-  descripcion: string;
-  fechaCotizacion: string;
+  valorTotal: string;
   archivo: File | null;
-  items: IItemCotizacionForm[];
 }
 
 interface IRequerimientoItem {
@@ -89,15 +70,6 @@ interface IRequerimientoItem {
   };
 }
 
-interface IItemCotizacionDetalle {
-  Id: number;
-  Descripcion: string;
-  Cantidad: number;
-  ValorUnitario: number;
-  ValorTotal: number;
-  Seleccionado: boolean;
-}
-
 interface IAdjuntoCotizacion {
   FileName: string;
   ServerRelativeUrl: string;
@@ -106,22 +78,12 @@ interface IAdjuntoCotizacion {
 interface ICotizacionDetalle {
   Id: number;
   Title: string;
-  Descripcion: string;
   NumeroCotizacionProveedor?: string;
   CodigoCotizacionInterno?: string;
   ValorTotal: number;
   Seleccionada: boolean;
-  FechaCotizacion?: string;
-
-  Proveedor?: {
-    Id: number;
-    RazonSocial: string;
-  };
-
   Attachments: IAdjuntoCotizacion[];
-  Items: IItemCotizacionDetalle[];
 }
-
 
 const Requerimientos: React.FC<IRequerimientosProps> = ({
   context
@@ -168,6 +130,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   const [loadingDetalle, setLoadingDetalle] =
     useState<boolean>(false);
 
+  const [comentarioAprobador, setComentarioAprobador] = useState<string>('');
+  const [procesandoDecision, setProcesandoDecision] = useState<boolean>(false);
+  const [cotizacionSeleccionadaId, setCotizacionSeleccionadaId] =
+    useState<number | null>(null);
+
   const [searchTerm, setSearchTerm] =
     useState<string>('');
 
@@ -186,26 +153,10 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   const [recurrente, setRecurrente] =
     useState<boolean>(false);
 
-  const [valorTotal, setValorTotal] =
-    useState<string>('');
-
-  const [proveedores, setProveedores] =
-    useState<IProveedor[]>([]);
-
-  const createEmptyItem = (): IItemCotizacionForm => ({
-    key: `${Date.now()}-${Math.random()}`,
-    descripcion: '',
-    cantidad: '1',
-    valorUnitario: ''
-  });
-
   const createEmptyCotizacion = (): ICotizacionForm => ({
     key: `${Date.now()}-${Math.random()}`,
-    proveedorId: '',
-    descripcion: '',
-    fechaCotizacion: '',
-    archivo: null,
-    items: [createEmptyItem()]
+    valorTotal: '',
+    archivo: null
   });
 
   const [cotizaciones, setCotizaciones] =
@@ -435,42 +386,6 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       setCategories(mappedCategories);
     };
 
-  /*
-   * ===========================
-   * PROVEEDORES
-   * ===========================
-   */
-
-  const loadProveedores = async (): Promise<void> => {
-    const url =
-      `${context.pageContext.web.absoluteUrl}` +
-      `/_api/web/lists/getbytitle('Proveedores')/items` +
-      `?$select=Id,RazonSocial,RUC,Activo` +
-      `&$filter=${encodeURIComponent('Activo eq 1')}` +
-      `&$orderby=RazonSocial asc&$top=500`;
-
-    const response = await context.spHttpClient.get(
-      url,
-      SPHttpClient.configurations.v1,
-      { headers: { Accept: 'application/json;odata=nometadata' } }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Error cargando proveedores. HTTP ${response.status}: ${errorText}`
-      );
-    }
-
-    const data = await response.json();
-    setProveedores(
-      data.value.map((item: { Id: number; RazonSocial?: string; RUC?: string }) => ({
-        Id: item.Id,
-        RazonSocial: item.RazonSocial || `Proveedor ${item.Id}`,
-        RUC: item.RUC
-      }))
-    );
-  };
 
   /*
    * ===========================
@@ -591,197 +506,47 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       }
     };
 
-    const loadDetalleRequerimiento =
-  async (requerimientoId: number): Promise<void> => {
-
+  const loadDetalleRequerimiento = async (requerimientoId: number): Promise<void> => {
     try {
-
       setLoadingDetalle(true);
       setCotizacionesDetalle([]);
-
-      /*
-       * ===========================
-       * COTIZACIONES
-       * ===========================
-       */
-
       const cotizacionesUrl =
-        `${context.pageContext.web.absoluteUrl}` +
-        `/_api/web/lists/getbytitle('Cotizaciones')/items` +
-        `?$select=` +
-        `Id,Title,Descripcion,NumeroCotizacionProveedor,` +
-        `CodigoCotizacionInterno,ValorTotal,Seleccionada,FechaCotizacion,` +
-        `Proveedor/Id,Proveedor/RazonSocial,` +
+        `${context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('Cotizaciones')/items` +
+        `?$select=Id,Title,NumeroCotizacionProveedor,CodigoCotizacionInterno,ValorTotal,Seleccionada,` +
         `AttachmentFiles/FileName,AttachmentFiles/ServerRelativeUrl` +
-        `&$expand=Proveedor,AttachmentFiles` +
-        `&$filter=${encodeURIComponent(
-          `RequerimientoId eq ${requerimientoId} and Activo eq 1`
-        )}` +
+        `&$expand=AttachmentFiles` +
+        `&$filter=${encodeURIComponent(`RequerimientoId eq ${requerimientoId} and Activo eq 1`)}` +
         `&$orderby=Id asc`;
-
-      const cotizacionesResponse =
-        await context.spHttpClient.get(
-          cotizacionesUrl,
-          SPHttpClient.configurations.v1,
-          {
-            headers: {
-              Accept: 'application/json;odata=nometadata'
-            }
-          }
-        );
-
-      if (!cotizacionesResponse.ok) {
-
-        const errorText =
-          await cotizacionesResponse.text();
-
-        throw new Error(
-          `Error cargando cotizaciones. HTTP ` +
-          `${cotizacionesResponse.status}: ${errorText}`
-        );
+      const response = await context.spHttpClient.get(cotizacionesUrl, SPHttpClient.configurations.v1, {
+        headers: { Accept: 'application/json;odata=nometadata' }
+      });
+      if (!response.ok) {
+        throw new Error(`Error cargando cotizaciones. HTTP ${response.status}: ${await response.text()}`);
       }
-
-      const cotizacionesData =
-        await cotizacionesResponse.json();
-
-      /*
-       * ===========================
-       * ITEMS DE CADA COTIZACIÓN
-       * ===========================
-       */
-
-      const detalle: ICotizacionDetalle[] =
-        await Promise.all(
-          cotizacionesData.value.map(
-            async (cotizacion: {
-              Id: number;
-              Title: string;
-              Descripcion?: string;
-              NumeroCotizacionProveedor?: string;
-              CodigoCotizacionInterno?: string;
-              ValorTotal?: number;
-              Seleccionada?: boolean;
-              FechaCotizacion?: string;
-              Proveedor?: {
-                Id: number;
-                RazonSocial?: string;
-              };
-              AttachmentFiles?: IAdjuntoCotizacion[];
-            }): Promise<ICotizacionDetalle> => {
-
-              const itemsUrl =
-                `${context.pageContext.web.absoluteUrl}` +
-                `/_api/web/lists/getbytitle('ItemCotizaciones')/items` +
-                `?$select=` +
-                `Id,Descripcion,Cantidad,ValorUnitario,ValorTotal,Seleccionado` +
-                `&$filter=${encodeURIComponent(
-                  `CotizacionId eq ${cotizacion.Id}`
-                )}` +
-                `&$orderby=Id asc`;
-
-              const itemsResponse =
-                await context.spHttpClient.get(
-                  itemsUrl,
-                  SPHttpClient.configurations.v1,
-                  {
-                    headers: {
-                      Accept:
-                        'application/json;odata=nometadata'
-                    }
-                  }
-                );
-
-              if (!itemsResponse.ok) {
-
-                const errorText =
-                  await itemsResponse.text();
-
-                throw new Error(
-                  `Error cargando ítems de la cotización ` +
-                  `#${cotizacion.Id}. HTTP ` +
-                  `${itemsResponse.status}: ${errorText}`
-                );
-              }
-
-              const itemsData =
-                await itemsResponse.json();
-
-              return {
-                Id: cotizacion.Id,
-                Title: cotizacion.Title,
-                Descripcion:
-                  cotizacion.Descripcion || '',
-                NumeroCotizacionProveedor:
-                  cotizacion.NumeroCotizacionProveedor,
-                CodigoCotizacionInterno:
-                  cotizacion.CodigoCotizacionInterno,
-                ValorTotal:
-                  Number(cotizacion.ValorTotal || 0),
-                Seleccionada:
-                  !!cotizacion.Seleccionada,
-                FechaCotizacion:
-                  cotizacion.FechaCotizacion,
-
-                Proveedor: cotizacion.Proveedor
-                  ? {
-                      Id: cotizacion.Proveedor.Id,
-                      RazonSocial:
-                        cotizacion.Proveedor.RazonSocial ||
-                        'Proveedor'
-                    }
-                  : undefined,
-
-                Attachments:
-                  cotizacion.AttachmentFiles || [],
-
-                Items:
-                  itemsData.value.map(
-                    (item: {
-                      Id: number;
-                      Descripcion?: string;
-                      Cantidad?: number;
-                      ValorUnitario?: number;
-                      ValorTotal?: number;
-                      Seleccionado?: boolean;
-                    }): IItemCotizacionDetalle => ({
-                      Id: item.Id,
-                      Descripcion:
-                        item.Descripcion || '',
-                      Cantidad:
-                        Number(item.Cantidad || 0),
-                      ValorUnitario:
-                        Number(item.ValorUnitario || 0),
-                      ValorTotal:
-                        Number(item.ValorTotal || 0),
-                      Seleccionado:
-                        !!item.Seleccionado
-                    })
-                  )
-              };
-            }
-          )
-        );
-
-      console.log(
-        'DETALLE COTIZACIONES:',
-        detalle
-      );
-
+      const data = await response.json();
+      const detalle: ICotizacionDetalle[] = data.value.map((cotizacion: {
+        Id: number; Title: string; NumeroCotizacionProveedor?: string;
+        CodigoCotizacionInterno?: string; ValorTotal?: number; Seleccionada?: boolean;
+        AttachmentFiles?: IAdjuntoCotizacion[];
+      }): ICotizacionDetalle => ({
+        Id: cotizacion.Id,
+        Title: cotizacion.Title,
+        NumeroCotizacionProveedor: cotizacion.NumeroCotizacionProveedor,
+        CodigoCotizacionInterno: cotizacion.CodigoCotizacionInterno,
+        ValorTotal: Number(cotizacion.ValorTotal || 0),
+        Seleccionada: !!cotizacion.Seleccionada,
+Attachments: cotizacion.AttachmentFiles || []
+      }));
       setCotizacionesDetalle(detalle);
 
+      const cotizacionYaSeleccionada = detalle.find(
+        (cotizacion: ICotizacionDetalle) => cotizacion.Seleccionada
+      );
+      setCotizacionSeleccionadaId(cotizacionYaSeleccionada?.Id || null);
     } catch (error) {
-
-      console.error(
-        'Error cargando detalle:',
-        error
-      );
-
-      setMessage(
-        getErrorMessage(error)
-      );
-
+      console.error('Error cargando detalle:', error);
+      setMessage(getErrorMessage(error));
     } finally {
-
       setLoadingDetalle(false);
     }
   };
@@ -861,7 +626,6 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             userRole === 'Admin'
           );
 
-          await loadProveedores();
 
           /*
            * Vista inicial según rol
@@ -951,6 +715,87 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       currency: 'USD'
     });
 
+  const getVistaPreviaArchivo = (archivo: IAdjuntoCotizacion): string =>
+    new URL(archivo.ServerRelativeUrl, window.location.origin).href;
+
+  const updateListItem = async (listTitle: string, itemId: number, body: Record<string, unknown>): Promise<void> => {
+    const url = `${context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('${listTitle}')/items(${itemId})`;
+    const response = await context.spHttpClient.post(url, SPHttpClient.configurations.v1, {
+      headers: {
+        Accept: 'application/json;odata=nometadata',
+        'Content-Type': 'application/json;odata=nometadata',
+        'IF-MATCH': '*',
+        'X-HTTP-Method': 'MERGE'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+      throw new Error(`Error actualizando ${listTitle}. HTTP ${response.status}: ${await response.text()}`);
+    }
+  };
+
+  const decidirRequerimiento = async (aprobar: boolean): Promise<void> => {
+    if (!selectedRequerimiento || !user) return;
+
+    if (user.role !== 'Aprobador' && user.role !== 'Admin') {
+      setMessage('No tienes permisos para tomar esta decisión.');
+      return;
+    }
+
+    if (selectedRequerimiento.Estado !== 'Enviado Aprobacion') {
+      setMessage('Este requerimiento ya no se encuentra pendiente de aprobación.');
+      return;
+    }
+
+    if (aprobar && !cotizacionSeleccionadaId) {
+      setMessage('Seleccione una cotización antes de aprobar el requerimiento.');
+      return;
+    }
+
+    if (!aprobar && !comentarioAprobador.trim()) {
+      setMessage('Ingrese un comentario para rechazar el requerimiento.');
+      return;
+    }
+
+    const requerimientoId = selectedRequerimiento.Id;
+
+    try {
+      setProcesandoDecision(true);
+      setMessage('');
+
+      if (aprobar) {
+        // Garantiza que exista una sola cotización seleccionada.
+        for (const cotizacion of cotizacionesDetalle) {
+          await updateListItem('Cotizaciones', cotizacion.Id, {
+            Seleccionada: cotizacion.Id === cotizacionSeleccionadaId
+          });
+        }
+      }
+
+      await updateListItem('Requerimientos', requerimientoId, {
+        Estado: aprobar ? 'Aprobado' : 'Rechazado',
+        FechaAprobacion: new Date().toISOString(),
+        ComentarioAprobador: comentarioAprobador.trim()
+      });
+
+      setSelectedRequerimiento(null);
+      setComentarioAprobador('');
+      setCotizacionSeleccionadaId(null);
+
+      await loadRequerimientos(activeView, user.id);
+
+      setMessage(
+        aprobar
+          ? `Requerimiento #${requerimientoId} aprobado con la cotización seleccionada.`
+          : `Requerimiento #${requerimientoId} rechazado correctamente.`
+      );
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setProcesandoDecision(false);
+    }
+  };
+
   const getEtapas = (item: IRequerimientoItem): string[] =>
     item.Recurrente
       ? ['Solicitud', 'Aprobacion', 'Contrato', 'OrdenCompra', 'Facturacion', 'Finalizado']
@@ -991,6 +836,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   (requerimiento: IRequerimientoItem): void => {
 
     setSelectedRequerimiento(requerimiento);
+    setComentarioAprobador('');
+    setCotizacionSeleccionadaId(null);
     setMessage('');
 
     void loadDetalleRequerimiento(
@@ -1003,13 +850,6 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
    * GUARDAR / ENVIAR REQUERIMIENTO
    * ===========================
    */
-
-  const calcularTotalCotizacion = (cotizacion: ICotizacionForm): number =>
-    cotizacion.items.reduce((total, item) => {
-      const cantidad = Number(item.cantidad) || 0;
-      const valorUnitario = Number(item.valorUnitario) || 0;
-      return total + (cantidad * valorUnitario);
-    }, 0);
 
   const agregarCotizacion = (): void => {
     if (cotizaciones.length >= 3) {
@@ -1028,60 +868,10 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     setCotizaciones(cotizaciones.filter((_, index) => index !== cotizacionIndex));
   };
 
-  const actualizarCotizacion = (
-    cotizacionIndex: number,
-    changes: Partial<ICotizacionForm>
-  ): void => {
-    setCotizaciones(
-      cotizaciones.map((cotizacion, index) =>
-        index === cotizacionIndex ? { ...cotizacion, ...changes } : cotizacion
-      )
-    );
-  };
-
-  const agregarItem = (cotizacionIndex: number): void => {
-    setCotizaciones(
-      cotizaciones.map((cotizacion, index) =>
-        index === cotizacionIndex
-          ? { ...cotizacion, items: [...cotizacion.items, createEmptyItem()] }
-          : cotizacion
-      )
-    );
-  };
-
-  const eliminarItem = (cotizacionIndex: number, itemIndex: number): void => {
-    const cotizacion = cotizaciones[cotizacionIndex];
-    if (cotizacion.items.length === 1) {
-      setMessage('Cada cotización debe mantener al menos un ítem.');
-      return;
-    }
-
-    setCotizaciones(
-      cotizaciones.map((current, index) =>
-        index === cotizacionIndex
-          ? { ...current, items: current.items.filter((_, i) => i !== itemIndex) }
-          : current
-      )
-    );
-  };
-
-  const actualizarItem = (
-    cotizacionIndex: number,
-    itemIndex: number,
-    changes: Partial<IItemCotizacionForm>
-  ): void => {
-    setCotizaciones(
-      cotizaciones.map((cotizacion, index) =>
-        index === cotizacionIndex
-          ? {
-              ...cotizacion,
-              items: cotizacion.items.map((item, i) =>
-                i === itemIndex ? { ...item, ...changes } : item
-              )
-            }
-          : cotizacion
-      )
-    );
+  const actualizarCotizacion = (cotizacionIndex: number, changes: Partial<ICotizacionForm>): void => {
+    setCotizaciones(cotizaciones.map((cotizacion, index) =>
+      index === cotizacionIndex ? { ...cotizacion, ...changes } : cotizacion
+    ));
   };
 
   const createListItem = async (
@@ -1191,47 +981,35 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           );
         }
 
-      const numericValue = Number(valorTotal);
-      if (!valorTotal || isNaN(numericValue) || numericValue < 0) {
-        throw new Error('Ingrese un valor total válido.');
-      }
-
       if (cotizaciones.length < 1 || cotizaciones.length > 3) {
         throw new Error('El requerimiento debe tener entre 1 y 3 cotizaciones.');
       }
 
       if (enviar) {
         cotizaciones.forEach((cotizacion, cotizacionIndex) => {
-          if (!cotizacion.proveedorId) {
-            throw new Error(`Seleccione el proveedor de la cotización ${cotizacionIndex + 1}.`);
+          const totalCotizacion = Number(cotizacion.valorTotal);
+          if (!cotizacion.valorTotal || isNaN(totalCotizacion) || totalCotizacion <= 0) {
+            throw new Error(`Ingrese un valor total válido en la cotización ${cotizacionIndex + 1}.`);
           }
-          if (!cotizacion.descripcion.trim()) {
-            throw new Error(`Ingrese la descripción de la cotización ${cotizacionIndex + 1}.`);
+
+          if (!cotizacion.archivo) {
+            throw new Error(`Adjunte el PDF de la cotización ${cotizacionIndex + 1}.`);
           }
-          if (cotizacion.items.length < 1) {
-            throw new Error(`La cotización ${cotizacionIndex + 1} debe tener al menos un ítem.`);
-          }
-          cotizacion.items.forEach((item, itemIndex) => {
-            if (!item.descripcion.trim()) {
-              throw new Error(
-                `Ingrese la descripción del ítem ${itemIndex + 1} de la cotización ${cotizacionIndex + 1}.`
-              );
-            }
-            const cantidad = Number(item.cantidad);
-            const valorUnitarioItem = Number(item.valorUnitario);
-            if (!cantidad || cantidad <= 0) {
-              throw new Error(
-                `Ingrese una cantidad válida en el ítem ${itemIndex + 1} de la cotización ${cotizacionIndex + 1}.`
-              );
-            }
-            if (isNaN(valorUnitarioItem) || valorUnitarioItem < 0 || item.valorUnitario === '') {
-              throw new Error(
-                `Ingrese un valor unitario válido en el ítem ${itemIndex + 1} de la cotización ${cotizacionIndex + 1}.`
-              );
-            }
-          });
         });
       }
+
+      // Valor referencial del requerimiento:
+      // - 1 cotización: toma ese mismo valor.
+      // - 2 o 3 cotizaciones: calcula el promedio.
+      const valoresCotizaciones = cotizaciones
+        .map((cotizacion) => Number(cotizacion.valorTotal))
+        .filter((valor) => !isNaN(valor) && valor > 0);
+
+      const numericValue =
+        valoresCotizaciones.length > 0
+          ? valoresCotizaciones.reduce((total, valor) => total + valor, 0) /
+            valoresCotizaciones.length
+          : 0;
 
       const itemId = await createListItem('Requerimientos', {
         Title: descripcion.trim().substring(0, 255),
@@ -1250,35 +1028,23 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
         // En borrador solo persistimos cotizaciones que tengan algún dato ingresado.
         const tieneDatos =
-          !!cotizacion.proveedorId ||
-          !!cotizacion.descripcion.trim() ||
-          !!cotizacion.fechaCotizacion ||
           !!cotizacion.archivo ||
-          cotizacion.items.some(item =>
-            !!item.descripcion.trim() || !!item.valorUnitario
-          );
+          !!cotizacion.valorTotal;
 
         if (!enviar && !tieneDatos) {
           continue;
         }
 
-        const totalCotizacion = calcularTotalCotizacion(cotizacion);
+        const totalCotizacion = Number(cotizacion.valorTotal) || 0;
         const cotizacionBody: Record<string, unknown> = {
           Title: `REQ-${itemId}-COT-${c + 1}`,
           RequerimientoId: itemId,
-          Descripcion: cotizacion.descripcion.trim(),
           CodigoCotizacionInterno: `COT-REQ-${('000000' + itemId).slice(-6)}-${('00' + (c + 1)).slice(-2)}`,
           ValorTotal: totalCotizacion,
           Seleccionada: false,
           Activo: true
         };
 
-        if (cotizacion.proveedorId) {
-          cotizacionBody.ProveedorId = Number(cotizacion.proveedorId);
-        }
-        if (cotizacion.fechaCotizacion) {
-          cotizacionBody.FechaCotizacion = cotizacion.fechaCotizacion;
-        }
 
         const cotizacionId = await createListItem('Cotizaciones', cotizacionBody);
 
@@ -1292,32 +1058,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           await adjuntarArchivo('Cotizaciones', cotizacionId, cotizacion.archivo);
         }
 
-        for (let i = 0; i < cotizacion.items.length; i += 1) {
-          const item = cotizacion.items[i];
-          const tieneDatosItem = !!item.descripcion.trim() || !!item.valorUnitario;
-          if (!enviar && !tieneDatosItem) {
-            continue;
-          }
-
-          const cantidad = Number(item.cantidad) || 0;
-          const valorUnitarioItem = Number(item.valorUnitario) || 0;
-
-          await createListItem('ItemCotizaciones', {
-            Title: `COT-${cotizacionId}-ITEM-${i + 1}`,
-            CotizacionId: cotizacionId,
-            Descripcion: item.descripcion.trim(),
-            Cantidad: cantidad,
-            ValorUnitario: valorUnitarioItem,
-            ValorTotal: cantidad * valorUnitarioItem,
-            Seleccionado: false
-          });
-        }
       }
 
       setDescripcion('');
       setCategoriaId('');
       setRecurrente(false);
-      setValorTotal('');
       setCotizaciones([createEmptyCotizacion()]);
 
       if (user.role === 'Solicitador') {
@@ -1571,7 +1316,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
               <span className={styles.eyebrow}>NUEVO EXPEDIENTE</span>
               <h2 className={styles.pageTitle}>Crear requerimiento</h2>
               <p className={styles.pageDescription}>
-                Registra la solicitud y compara las cotizaciones antes de enviarla a aprobación.
+                Selecciona la categoría, describe la necesidad y adjunta las cotizaciones para enviarlas a aprobación.
               </p>
             </div>
             <div className={styles.formProgress}>Solicitud · Paso inicial</div>
@@ -1581,9 +1326,27 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             <div className={styles.sectionHeader}>
               <div className={styles.sectionNumber}>01</div>
               <div>
-                <h3>Información general</h3>
-                <p>Datos principales que identificarán el expediente.</p>
+                <h3>Datos del requerimiento</h3>
+                <p>Selecciona la categoría, describe la necesidad y define el tipo de proceso.</p>
               </div>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Categoría</label>
+              <select
+                className={styles.select}
+                value={categoriaId}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                  setCategoriaId(event.target.value)
+                }
+              >
+                <option value="">Seleccione una categoría</option>
+                {categories.map((category: ICategory) => (
+                  <option key={category.Id} value={category.Id}>
+                    {category.NombreCategoria}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className={styles.formGroup}>
@@ -1591,7 +1354,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
               <textarea
                 className={styles.textarea}
                 value={descripcion}
-                placeholder="Describe el producto, servicio o necesidad..."
+                placeholder="Describe brevemente el producto, servicio o necesidad..."
                 onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
                   setDescripcion(event.target.value)
                 }
@@ -1599,54 +1362,31 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
               />
             </div>
 
-            <div className={styles.formGrid3}>
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Categoría</label>
-                <select
-                  className={styles.select}
-                  value={categoriaId}
-                  onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
-                    setCategoriaId(event.target.value)
-                  }
-                >
-                  <option value="">Seleccione una categoría</option>
-                  {categories.map((category: ICategory) => (
-                    <option key={category.Id} value={category.Id}>
-                      {category.NombreCategoria}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Tipo de proceso</label>
 
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Valor referencial</label>
-                <div className={styles.moneyInput}>
-                  <span>$</span>
-                  <input
-                    className={styles.input}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={valorTotal}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                      setValorTotal(event.target.value)
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Tipo de proceso</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <button
                   type="button"
-                  className={`${styles.recurrentToggle} ${recurrente ? styles.recurrentToggleActive : ''}`}
-                  onClick={() => setRecurrente(!recurrente)}
+                  className={`${styles.recurrentToggle} ${!recurrente ? styles.recurrentToggleActive : ''}`}
+                  onClick={() => setRecurrente(false)}
                 >
                   <span className={styles.toggleDot} />
                   <span>
-                    <strong>{recurrente ? 'Recurrente' : 'No recurrente'}</strong>
-                    <small>{recurrente ? 'Incluye etapa de contrato' : 'Pasa directo a orden de compra'}</small>
+                    <strong>No recurrente</strong>
+                    <small>Pasa directo a orden de compra</small>
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`${styles.recurrentToggle} ${recurrente ? styles.recurrentToggleActive : ''}`}
+                  onClick={() => setRecurrente(true)}
+                >
+                  <span className={styles.toggleDot} />
+                  <span>
+                    <strong>Recurrente</strong>
+                    <small>Requiere contrato antes de la orden de compra</small>
                   </span>
                 </button>
               </div>
@@ -1659,7 +1399,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 <div className={styles.sectionNumber}>02</div>
                 <div>
                   <h3>Cotizaciones</h3>
-                  <p>Compara hasta tres propuestas. Cada una puede incluir múltiples ítems.</p>
+                  <p>Registra hasta tres cotizaciones con su valor total y documento PDF.</p>
                 </div>
               </div>
               <span className={styles.counterBadge}>{cotizaciones.length} de 3</span>
@@ -1671,143 +1411,63 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                   <div className={styles.quotationHeader}>
                     <div>
                       <span className={styles.quotationLabel}>COTIZACIÓN {String(cotizacionIndex + 1)}</span>
-                      <h3>{cotizacion.proveedorId
-                        ? proveedores.find(p => p.Id === Number(cotizacion.proveedorId))?.RazonSocial || 'Proveedor'
-                        : 'Nueva propuesta'}</h3>
+                      <h3>Propuesta comercial</h3>
                     </div>
                     <div className={styles.quotationAmount}>
                       <small>Total cotización</small>
-                      <strong>{formatCurrency(calcularTotalCotizacion(cotizacion))}</strong>
-                    </div>
-                  </div>
-
-                  <div className={styles.quotationMetaGrid}>
-                    <div className={styles.formGroup}>
-                      <label className={styles.label}>Proveedor</label>
-                      <select
-                        className={styles.select}
-                        value={cotizacion.proveedorId}
-                        onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
-                          actualizarCotizacion(cotizacionIndex, { proveedorId: event.target.value })
-                        }
-                      >
-                        <option value="">Seleccione un proveedor</option>
-                        {proveedores.map((proveedor: IProveedor) => (
-                          <option key={proveedor.Id} value={proveedor.Id}>{proveedor.RazonSocial}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className={styles.formGroup}>
-                      <label className={styles.label}>Fecha</label>
-                      <input
-                        className={styles.input}
-                        type="date"
-                        value={cotizacion.fechaCotizacion}
-                        onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                          actualizarCotizacion(cotizacionIndex, { fechaCotizacion: event.target.value })
-                        }
-                      />
-                    </div>
-
-                    <div className={styles.formGroup}>
-                      <label className={styles.label}>Documento PDF (opcional)</label>
-                      <label className={styles.fileUpload}>
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                            const selectedFile = event.target.files?.[0] || null;
-                            if (selectedFile) {
-                              const isPdf = selectedFile.type === 'application/pdf' || /\.pdf$/i.test(selectedFile.name);
-                              if (!isPdf) {
-                                setMessage('Solo se permiten archivos PDF.');
-                                event.target.value = '';
-                                return;
-                              }
-                            }
-                            setMessage('');
-                            actualizarCotizacion(cotizacionIndex, { archivo: selectedFile });
-                          }}
-                        />
-                        <span>{cotizacion.archivo ? '✓ PDF adjunto' : 'Adjuntar PDF'}</span>
-                      </label>
+                      <strong>{formatCurrency(Number(cotizacion.valorTotal) || 0)}</strong>
                     </div>
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label className={styles.label}>Descripción de la propuesta</label>
-                    <input
-                      className={styles.input}
-                      type="text"
-                      placeholder="Ej. Licenciamiento anual y soporte"
-                      value={cotizacion.descripcion}
-                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                        actualizarCotizacion(cotizacionIndex, { descripcion: event.target.value })
-                      }
-                    />
+                    <label className={styles.label}>Documento PDF</label>
+                    <label className={styles.fileUpload}>
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                          const selectedFile = event.target.files?.[0] || null;
+
+                          if (selectedFile) {
+                            const isPdf =
+                              selectedFile.type === 'application/pdf' ||
+                              /\.pdf$/i.test(selectedFile.name);
+
+                            if (!isPdf) {
+                              setMessage('Solo se permiten archivos PDF.');
+                              event.target.value = '';
+                              return;
+                            }
+                          }
+
+                          setMessage('');
+                          actualizarCotizacion(cotizacionIndex, { archivo: selectedFile });
+                        }}
+                      />
+                      <span>
+                        {cotizacion.archivo
+                          ? `✓ ${cotizacion.archivo.name}`
+                          : 'Adjuntar PDF'}
+                      </span>
+                    </label>
                   </div>
 
-                  <div className={styles.itemsSection}>
-                    <div className={styles.itemsHeader}>
-                      <div>
-                        <strong>Detalle de ítems</strong>
-                        <span>{cotizacion.items.length} {cotizacion.items.length === 1 ? 'ítem' : 'ítems'}</span>
-                      </div>
-                      <button type="button" className={styles.secondaryButton} onClick={() => agregarItem(cotizacionIndex)}>
-                        + Agregar ítem
-                      </button>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Valor total de la cotización</label>
+                    <div className={styles.moneyInput}>
+                      <span>$</span>
+                      <input
+                        className={styles.input}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={cotizacion.valorTotal}
+                        onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                          actualizarCotizacion(cotizacionIndex, { valorTotal: event.target.value })
+                        }
+                      />
                     </div>
-
-                    <div className={styles.itemsTableHeader}>
-                      <span>Descripción</span><span>Cantidad</span><span>Valor unitario</span><span>Total</span><span />
-                    </div>
-
-                    {cotizacion.items.map((item, itemIndex) => {
-                      const totalItem = (Number(item.cantidad) || 0) * (Number(item.valorUnitario) || 0);
-                      return (
-                        <div key={item.key} className={styles.itemRow}>
-                          <input
-                            className={styles.input}
-                            type="text"
-                            placeholder="Producto o servicio"
-                            value={item.descripcion}
-                            onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                              actualizarItem(cotizacionIndex, itemIndex, { descripcion: event.target.value })
-                            }
-                          />
-                          <input
-                            className={styles.input}
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={item.cantidad}
-                            onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                              actualizarItem(cotizacionIndex, itemIndex, { cantidad: event.target.value })
-                            }
-                          />
-                          <input
-                            className={styles.input}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            placeholder="0.00"
-                            value={item.valorUnitario}
-                            onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                              actualizarItem(cotizacionIndex, itemIndex, { valorUnitario: event.target.value })
-                            }
-                          />
-                          <strong className={styles.itemTotal}>{formatCurrency(totalItem)}</strong>
-                          <button
-                            type="button"
-                            className={styles.iconButton}
-                            disabled={cotizacion.items.length === 1}
-                            onClick={() => eliminarItem(cotizacionIndex, itemIndex)}
-                            title="Eliminar ítem"
-                          >×</button>
-                        </div>
-                      );
-                    })}
                   </div>
 
                   <div className={styles.quotationFooter}>
@@ -1818,7 +1478,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                     )}
                     <div className={styles.quotationGrandTotal}>
                       <span>Total</span>
-                      <strong>{formatCurrency(calcularTotalCotizacion(cotizacion))}</strong>
+                      <strong>{formatCurrency(Number(cotizacion.valorTotal) || 0)}</strong>
                     </div>
                   </div>
                 </div>
@@ -1872,7 +1532,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 </p>
               </div>
               <div className={styles.detailAmount}>
-                <small>Valor referencial</small>
+                <small>Valor promedio de cotizaciones</small>
                 <strong>{formatCurrency(selectedRequerimiento.ValorTotal)}</strong>
               </div>
             </div>
@@ -1903,7 +1563,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 <h3>Datos del requerimiento</h3>
                 <div className={styles.infoGrid}>
                   <div><small>Categoría</small><strong>{getCategoriaNombre(selectedRequerimiento.CategoriaId)}</strong></div>
-                  <div><small>Tipo</small><strong>{selectedRequerimiento.Recurrente ? 'Recurrente' : 'No recurrente'}</strong></div>
+                  <div><small>Tipo de proceso</small><strong>{selectedRequerimiento.Recurrente ? 'Recurrente' : 'No recurrente'}</strong></div>
                   <div><small>Etapa actual</small><strong>{getEtapaLabel(selectedRequerimiento.EtapaActual)}</strong></div>
                   <div><small>Estado</small><strong>{selectedRequerimiento.Estado}</strong></div>
                 </div>
@@ -1967,8 +1627,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                             </span>
 
                             <h3>
-                              {cotizacion.Proveedor?.RazonSocial ||
-                                'Proveedor no registrado'}
+                              Propuesta comercial
                             </h3>
 
                             {cotizacion.CodigoCotizacionInterno && (
@@ -1988,96 +1647,67 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
                         </div>
 
-                        <div className={styles.descriptionBox}>
-                          <small>Descripción</small>
-                          <p>
-                            {cotizacion.Descripcion || 'Sin descripción'}
-                          </p>
-                        </div>
-
-                        {cotizacion.FechaCotizacion && (
-                          <div className={styles.descriptionBox}>
-                            <small>Fecha de cotización</small>
-                            <p>
-                              {new Date(
-                                cotizacion.FechaCotizacion
-                              ).toLocaleDateString('es-EC')}
-                            </p>
-                          </div>
+                        {(user?.role === 'Aprobador' || user?.role === 'Admin') &&
+                          selectedRequerimiento.Estado === 'Enviado Aprobacion' && (
+                            <button
+                              type="button"
+                              className={`${styles.recurrentToggle} ${
+                                cotizacionSeleccionadaId === cotizacion.Id
+                                  ? styles.recurrentToggleActive
+                                  : ''
+                              }`}
+                              style={{ width: '100%', marginTop: 16 }}
+                              onClick={() => setCotizacionSeleccionadaId(cotizacion.Id)}
+                              disabled={procesandoDecision}
+                            >
+                              <span className={styles.toggleDot} />
+                              <span>
+                                <strong>
+                                  {cotizacionSeleccionadaId === cotizacion.Id
+                                    ? 'Cotización seleccionada'
+                                    : 'Seleccionar esta cotización'}
+                                </strong>
+                                <small>
+                                  {cotizacionSeleccionadaId === cotizacion.Id
+                                    ? 'Esta propuesta será aprobada'
+                                    : 'Elige esta propuesta para continuar con la aprobación'}
+                                </small>
+                              </span>
+                            </button>
                         )}
 
-                        <div className={styles.itemsSection}>
-
-                          <div className={styles.itemsHeader}>
-                            <div>
-                              <strong>Detalle de ítems</strong>
-                              <span>
-                                {cotizacion.Items.length}{' '}
-                                {cotizacion.Items.length === 1
-                                  ? 'ítem'
-                                  : 'ítems'}
-                              </span>
+                        {cotizacion.Seleccionada &&
+                          selectedRequerimiento.Estado === 'Aprobado' && (
+                            <div style={{
+                              marginTop: 16,
+                              padding: '12px 16px',
+                              borderRadius: 10,
+                              background: '#f0fdf4',
+                              border: '1px solid #bbf7d0'
+                            }}>
+                              <strong>✓ Cotización aprobada</strong>
                             </div>
-                          </div>
-
-                          <div className={styles.itemsTableHeader}>
-                            <span>Descripción</span>
-                            <span>Cantidad</span>
-                            <span>Valor unitario</span>
-                            <span>Total</span>
-                            <span />
-                          </div>
-
-                          {cotizacion.Items.map((item) => (
-
-                            <div
-                              key={item.Id}
-                              className={styles.itemRow}
-                            >
-
-                              <span>{item.Descripcion}</span>
-
-                              <span>{item.Cantidad}</span>
-
-                              <span>
-                                {formatCurrency(item.ValorUnitario)}
-                              </span>
-
-                              <strong className={styles.itemTotal}>
-                                {formatCurrency(item.ValorTotal)}
-                              </strong>
-
-                              <span />
-
-                            </div>
-
-                          ))}
-
-                        </div>
+                        )}
 
                         {cotizacion.Attachments.length > 0 && (
-
-                          <div className={styles.quotationFooter}>
-
+                          <div style={{ marginTop: 24 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                              <div>
+                                <strong>Documento de cotización</strong>
+                                <span>Vista previa del archivo adjunto</span>
+                              </div>
+                            </div>
                             {cotizacion.Attachments.map((archivo) => (
-
-                              <a
-                                key={archivo.ServerRelativeUrl}
-                                href={
-                                  window.location.origin +
-                                  archivo.ServerRelativeUrl
-                                }
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={styles.secondaryButton}
-                              >
-                                Ver PDF · {archivo.FileName}
-                              </a>
-
+                              <div key={archivo.ServerRelativeUrl} style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', background: '#fff', marginTop: 12 }}>
+                                <div style={{ padding: '12px 16px', fontSize: 13, fontWeight: 600, borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>{archivo.FileName}</div>
+                                <iframe
+                                  title={archivo.FileName}
+                                  src={getVistaPreviaArchivo(archivo)}
+                                  style={{ display: 'block', width: '100%', height: 650, border: 0, background: '#f3f4f6' }}
+                                />
+                              </div>
                             ))}
-
                           </div>
-
                         )}
 
                       </div>
@@ -2090,6 +1720,40 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
               )}
 
             </section>
+
+            {(user?.role === 'Aprobador' || user?.role === 'Admin') &&
+              selectedRequerimiento.Estado === 'Enviado Aprobacion' && (
+                <section className={styles.detailCard}>
+                  <span className={styles.eyebrow}>DECISIÓN DEL APROBADOR</span>
+                  <h3>Aprobar o rechazar requerimiento</h3>
+                  <p>
+                    Para aprobar, selecciona primero una de las cotizaciones mostradas arriba.
+                    Al rechazar, debes ingresar un comentario.
+                  </p>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Comentario (obligatorio al rechazar)</label>
+                    <textarea
+                      className={styles.textarea}
+                      rows={4}
+                      value={comentarioAprobador}
+                      placeholder="Escribe una observación sobre la decisión..."
+                      onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                        setComentarioAprobador(event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className={styles.actions}>
+                    <button type="button" className={styles.secondaryButton} disabled={procesandoDecision}
+                      onClick={() => { void decidirRequerimiento(false); }}>
+                      {procesandoDecision ? 'Procesando...' : 'Rechazar'}
+                    </button>
+                    <button type="button" className={styles.primaryButton} disabled={procesandoDecision}
+                      onClick={() => { void decidirRequerimiento(true); }}>
+                      {procesandoDecision ? 'Procesando...' : 'Aprobar cotización'}
+                    </button>
+                  </div>
+                </section>
+              )}
 
           </div>
         ) : (
@@ -2124,7 +1788,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 <div className={styles.emptyState}>No existen solicitudes para mostrar.</div>
               ) : (
                 <table className={styles.requestsTable}>
-                  <thead><tr><th>ID</th><th>Requerimiento</th><th>Categoría</th><th>Monto</th><th>Etapa actual</th><th>Estado</th><th>Fecha</th><th /></tr></thead>
+                  <thead><tr><th>ID</th><th>Requerimiento</th><th>Categoría</th><th>Promedio cotizaciones</th><th>Etapa actual</th><th>Estado</th><th>Fecha</th><th /></tr></thead>
                   <tbody>
                     {filteredRequerimientos.map((requerimiento: IRequerimientoItem) => (
                       <tr key={requerimiento.Id} className={styles.clickableRow} onClick={() => abrirRequerimiento(requerimiento)}>
