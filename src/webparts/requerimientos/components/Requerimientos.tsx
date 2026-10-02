@@ -46,10 +46,17 @@ interface ICategory {
   AprobadorPruebaId?: number;
 }
 
+interface IAdjuntoCotizacion {
+  FileName: string;
+  ServerRelativeUrl: string;
+}
+
 interface ICotizacionForm {
   key: string;
+  id?: number;
   valorTotal: string;
   archivo: File | null;
+  adjuntosExistentes: IAdjuntoCotizacion[];
 }
 
 interface IRequerimientoItem {
@@ -57,7 +64,9 @@ interface IRequerimientoItem {
   Title: string;
   Descripcion: string;
   CategoriaId?: number;
-  ValorTotal: number;
+  AprobadorId?: number;
+  ValorPromedio?: number | null;
+  ValorTotal?: number | null;
   Estado: string;
   Recurrente: boolean;
   Created: string;
@@ -76,11 +85,6 @@ interface IRequerimientoItem {
     Title: string;
     EMail?: string;
   };
-}
-
-interface IAdjuntoCotizacion {
-  FileName: string;
-  ServerRelativeUrl: string;
 }
 
 interface ICotizacionDetalle {
@@ -167,11 +171,18 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   const createEmptyCotizacion = (): ICotizacionForm => ({
     key: `${Date.now()}-${Math.random()}`,
     valorTotal: '',
-    archivo: null
+    archivo: null,
+    adjuntosExistentes: []
   });
 
   const [cotizaciones, setCotizaciones] =
     useState<ICotizacionForm[]>([createEmptyCotizacion()]);
+
+  const [editingDraftId, setEditingDraftId] =
+    useState<number | null>(null);
+
+  const [originalDraftCotizacionIds, setOriginalDraftCotizacionIds] =
+    useState<number[]>([]);
 
   /*
    * ===========================
@@ -453,7 +464,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           `${context.pageContext.web.absoluteUrl}` +
           `/_api/web/lists/getbytitle('Requerimientos')/items` +
           `?$select=` +
-          `Id,Title,Descripcion,CategoriaId,ValorTotal,Estado,` +
+          `Id,Title,Descripcion,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
           `Recurrente,Created,EtapaActual,FechaAprobacion,ComentarioAprobador,` +
           `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
           `Solicitante/Id,Solicitante/Title,Solicitante/EMail` +
@@ -518,42 +529,65 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       }
     };
 
-  const loadDetalleRequerimiento = async (requerimientoId: number): Promise<void> => {
+  const getCotizacionesDetalle = async (
+    requerimientoId: number
+  ): Promise<ICotizacionDetalle[]> => {
+    const cotizacionesUrl =
+      `${context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('Cotizaciones')/items` +
+      `?$select=Id,Title,NumeroCotizacionProveedor,CodigoCotizacionInterno,ValorTotal,Seleccionada,` +
+      `AttachmentFiles/FileName,AttachmentFiles/ServerRelativeUrl` +
+      `&$expand=AttachmentFiles` +
+      `&$filter=${encodeURIComponent(`RequerimientoId eq ${requerimientoId} and Activo eq 1`)}` +
+      `&$orderby=Id asc`;
+
+    const response = await context.spHttpClient.get(
+      cotizacionesUrl,
+      SPHttpClient.configurations.v1,
+      { headers: { Accept: 'application/json;odata=nometadata' } }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Error cargando cotizaciones. HTTP ${response.status}: ${await response.text()}`
+      );
+    }
+
+    const data = await response.json();
+
+    return data.value.map((cotizacion: {
+      Id: number;
+      Title: string;
+      NumeroCotizacionProveedor?: string;
+      CodigoCotizacionInterno?: string;
+      ValorTotal?: number;
+      Seleccionada?: boolean;
+      AttachmentFiles?: IAdjuntoCotizacion[];
+    }): ICotizacionDetalle => ({
+      Id: cotizacion.Id,
+      Title: cotizacion.Title,
+      NumeroCotizacionProveedor: cotizacion.NumeroCotizacionProveedor,
+      CodigoCotizacionInterno: cotizacion.CodigoCotizacionInterno,
+      ValorTotal: Number(cotizacion.ValorTotal || 0),
+      Seleccionada: !!cotizacion.Seleccionada,
+      Attachments: cotizacion.AttachmentFiles || []
+    }));
+  };
+
+  const loadDetalleRequerimiento = async (
+    requerimientoId: number
+  ): Promise<void> => {
     try {
       setLoadingDetalle(true);
       setCotizacionesDetalle([]);
-      const cotizacionesUrl =
-        `${context.pageContext.web.absoluteUrl}/_api/web/lists/getbytitle('Cotizaciones')/items` +
-        `?$select=Id,Title,NumeroCotizacionProveedor,CodigoCotizacionInterno,ValorTotal,Seleccionada,` +
-        `AttachmentFiles/FileName,AttachmentFiles/ServerRelativeUrl` +
-        `&$expand=AttachmentFiles` +
-        `&$filter=${encodeURIComponent(`RequerimientoId eq ${requerimientoId} and Activo eq 1`)}` +
-        `&$orderby=Id asc`;
-      const response = await context.spHttpClient.get(cotizacionesUrl, SPHttpClient.configurations.v1, {
-        headers: { Accept: 'application/json;odata=nometadata' }
-      });
-      if (!response.ok) {
-        throw new Error(`Error cargando cotizaciones. HTTP ${response.status}: ${await response.text()}`);
-      }
-      const data = await response.json();
-      const detalle: ICotizacionDetalle[] = data.value.map((cotizacion: {
-        Id: number; Title: string; NumeroCotizacionProveedor?: string;
-        CodigoCotizacionInterno?: string; ValorTotal?: number; Seleccionada?: boolean;
-        AttachmentFiles?: IAdjuntoCotizacion[];
-      }): ICotizacionDetalle => ({
-        Id: cotizacion.Id,
-        Title: cotizacion.Title,
-        NumeroCotizacionProveedor: cotizacion.NumeroCotizacionProveedor,
-        CodigoCotizacionInterno: cotizacion.CodigoCotizacionInterno,
-        ValorTotal: Number(cotizacion.ValorTotal || 0),
-        Seleccionada: !!cotizacion.Seleccionada,
-Attachments: cotizacion.AttachmentFiles || []
-      }));
+
+      const detalle = await getCotizacionesDetalle(requerimientoId);
+
       setCotizacionesDetalle(detalle);
 
       const cotizacionYaSeleccionada = detalle.find(
         (cotizacion: ICotizacionDetalle) => cotizacion.Seleccionada
       );
+
       setCotizacionSeleccionadaId(cotizacionYaSeleccionada?.Id || null);
     } catch (error) {
       console.error('Error cargando detalle:', error);
@@ -562,6 +596,47 @@ Attachments: cotizacion.AttachmentFiles || []
       setLoadingDetalle(false);
     }
   };
+
+
+  const loadRequerimientoPorId = async (
+    requerimientoId: number
+  ): Promise<IRequerimientoItem> => {
+    const requerimientoUrl =
+      `${context.pageContext.web.absoluteUrl}` +
+      `/_api/web/lists/getbytitle('Requerimientos')/items(${requerimientoId})` +
+      `?$select=` +
+      `Id,Title,Descripcion,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
+      `Recurrente,Created,EtapaActual,FechaAprobacion,ComentarioAprobador,` +
+      `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
+      `Solicitante/Id,Solicitante/Title,Solicitante/EMail` +
+      `&$expand=Solicitante,DecisionPor`;
+
+    const response = await context.spHttpClient.get(
+      requerimientoUrl,
+      SPHttpClient.configurations.v1,
+      {
+        headers: {
+          Accept: 'application/json;odata=nometadata'
+        }
+      }
+    );
+
+    if (response.status === 404) {
+      throw new Error(`No existe el requerimiento #${requerimientoId}.`);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `No se pudo abrir el requerimiento #${requerimientoId}. ` +
+        `HTTP ${response.status}: ${errorText}`
+      );
+    }
+
+    const data = await response.json();
+    return data as IRequerimientoItem;
+  };
+
 
   /*
    * ===========================
@@ -635,12 +710,104 @@ Attachments: cotizacion.AttachmentFiles || []
 
           await loadCategories(
             userConfig.areaId,
-            userRole === 'Admin'
+            userRole === 'Admin' || userRole === 'Aprobador'
           );
 
 
           /*
-           * Vista inicial según rol
+           * Entrada directa desde correo:
+           * CollabHome.aspx?reqId=123
+           *
+           * La navegación normal de la SPA no cambia la URL.
+           * Este parámetro solo se utiliza al cargar inicialmente la página.
+           */
+
+          const rawReqId =
+            new URLSearchParams(window.location.search).get('reqId');
+
+          const deepLinkReqId =
+            rawReqId ? Number(rawReqId) : undefined;
+
+          let deepLinkError = '';
+
+          if (
+            rawReqId &&
+            (
+              !deepLinkReqId ||
+              Math.floor(deepLinkReqId) !== deepLinkReqId ||
+              deepLinkReqId <= 0
+            )
+          ) {
+            deepLinkError =
+              'El enlace recibido contiene un ID de requerimiento inválido.';
+          }
+
+          if (deepLinkReqId && !deepLinkError) {
+            try {
+              const requerimientoDirecto =
+                await loadRequerimientoPorId(deepLinkReqId);
+
+              const puedeAbrir =
+                userRole === 'Admin' ||
+                (
+                  userRole === 'Aprobador' &&
+                  requerimientoDirecto.AprobadorId === currentUser.Id &&
+                  requerimientoDirecto.Estado !== 'Borrador'
+                ) ||
+                (
+                  userRole === 'Solicitador' &&
+                  requerimientoDirecto.Solicitante?.Id === currentUser.Id
+                );
+
+              if (!puedeAbrir) {
+                throw new Error(
+                  'No tienes permisos para visualizar este requerimiento.'
+                );
+              }
+
+              let directView: AppView = 'mis';
+
+              if (userRole === 'Admin') {
+                directView = 'todas';
+              } else if (userRole === 'Aprobador') {
+                if (requerimientoDirecto.Estado === 'Aprobado') {
+                  directView = 'aprobadas';
+                } else if (requerimientoDirecto.Estado === 'Rechazado') {
+                  directView = 'rechazadas';
+                } else {
+                  directView = 'pendientes';
+                }
+              }
+
+              setActiveView(directView);
+
+              await loadRequerimientos(
+                directView,
+                currentUser.Id
+              );
+
+              setSelectedRequerimiento(
+                requerimientoDirecto
+              );
+
+              setComentarioAprobador('');
+              setCotizacionSeleccionadaId(null);
+              setArchivoPreview(null);
+
+              await loadDetalleRequerimiento(
+                requerimientoDirecto.Id
+              );
+
+              return;
+
+            } catch (deepLinkException) {
+              deepLinkError =
+                getErrorMessage(deepLinkException);
+            }
+          }
+
+          /*
+           * Vista inicial normal según rol
            */
 
           if (
@@ -674,6 +841,10 @@ Attachments: cotizacion.AttachmentFiles || []
             setActiveView(
               'nueva'
             );
+          }
+
+          if (deepLinkError) {
+            setMessage(deepLinkError);
           }
 
         } catch (error) {
@@ -721,7 +892,7 @@ Attachments: cotizacion.AttachmentFiles || []
       }
     };
 
-  const formatCurrency = (value: number): string =>
+  const formatCurrency = (value?: number | null): string =>
     Number(value || 0).toLocaleString('es-EC', {
       style: 'currency',
       currency: 'USD'
@@ -835,11 +1006,6 @@ Attachments: cotizacion.AttachmentFiles || []
       return;
     }
 
-    if (selectedRequerimiento.Estado !== 'Enviado Aprobacion') {
-      setMessage('Este requerimiento ya no se encuentra pendiente de aprobación.');
-      return;
-    }
-
     if (aprobar && !cotizacionSeleccionadaId) {
       setMessage('Seleccione una cotización antes de aprobar el requerimiento.');
       return;
@@ -850,47 +1016,135 @@ Attachments: cotizacion.AttachmentFiles || []
       return;
     }
 
-    if (aprobar) {
-      const mensajeConfirmacion = selectedRequerimiento.Recurrente
-        ? 'Al aprobar este requerimiento se generará automáticamente la orden de compra asociada a un Contrato con la cotización seleccionada. ¿Deseas continuar?'
-        : 'Al aprobar este requerimiento se generará automáticamente la solicitud de orden de compra (OCV) con la cotización seleccionada. ¿Deseas continuar?';
-
-      if (!window.confirm(mensajeConfirmacion)) {
-        return;
-      }
-    }
-
     const requerimientoId = selectedRequerimiento.Id;
 
     try {
       setProcesandoDecision(true);
       setMessage('');
 
-      if (aprobar) {
-        // Garantiza que exista una sola cotización seleccionada.
-        for (const cotizacion of cotizacionesDetalle) {
-          await updateListItem('Cotizaciones', cotizacion.Id, {
-            Seleccionada: cotizacion.Id === cotizacionSeleccionadaId
-          });
-        }
+      // Siempre trabajar con el estado más reciente de SharePoint.
+      const requerimientoActual =
+        await loadRequerimientoPorId(requerimientoId);
+
+      if (requerimientoActual.Estado !== 'Enviado Aprobacion') {
+        throw new Error(
+          `El requerimiento #${requerimientoId} ya no está pendiente de aprobación. ` +
+          `Estado actual: ${requerimientoActual.Estado}.`
+        );
       }
 
-      if (aprobar && cotizacionSeleccionadaId) {
-        await crearOrdenCompraSiNoExiste(
-          selectedRequerimiento,
-          cotizacionSeleccionadaId,
-          user.id
+      // Un aprobador únicamente puede decidir requerimientos asignados a él.
+      // Admin se mantiene como excepción administrativa.
+      if (
+        user.role === 'Aprobador' &&
+        requerimientoActual.AprobadorId !== user.id
+      ) {
+        throw new Error(
+          'Este requerimiento está asignado a otro aprobador.'
         );
+      }
+
+      const cotizacionesActuales =
+        await getCotizacionesDetalle(requerimientoId);
+
+      let valorCotizacionAprobada: number | undefined;
+
+      if (aprobar) {
+        if (!cotizacionSeleccionadaId) {
+          throw new Error(
+            'Seleccione una cotización antes de aprobar el requerimiento.'
+          );
+        }
+
+        const cotizacionSeleccionada =
+          cotizacionesActuales.find(
+            (cotizacion: ICotizacionDetalle) =>
+              cotizacion.Id === cotizacionSeleccionadaId
+          );
+
+        if (!cotizacionSeleccionada) {
+          throw new Error(
+            'La cotización seleccionada ya no se encuentra disponible.'
+          );
+        }
+
+        if (
+          !Number.isFinite(cotizacionSeleccionada.ValorTotal) ||
+          cotizacionSeleccionada.ValorTotal <= 0
+        ) {
+          throw new Error(
+            'La cotización seleccionada no tiene un valor válido.'
+          );
+        }
+
+        if (cotizacionSeleccionada.Attachments.length === 0) {
+          throw new Error(
+            'La cotización seleccionada no tiene un PDF adjunto.'
+          );
+        }
+
+        valorCotizacionAprobada = cotizacionSeleccionada.ValorTotal;
+
+        const mensajeConfirmacion = requerimientoActual.Recurrente
+          ? 'Al aprobar este requerimiento se generará automáticamente la orden de compra asociada a un Contrato con la cotización seleccionada. ¿Deseas continuar?'
+          : 'Al aprobar este requerimiento se generará automáticamente la solicitud de orden de compra (OCV) con la cotización seleccionada. ¿Deseas continuar?';
+
+        if (!window.confirm(mensajeConfirmacion)) {
+          return;
+        }
+
+        // Garantiza que exista una sola cotización seleccionada
+        // usando la información recién leída desde SharePoint.
+        for (const cotizacion of cotizacionesActuales) {
+          await updateListItem('Cotizaciones', cotizacion.Id, {
+            Seleccionada:
+              cotizacion.Id === cotizacionSeleccionadaId
+          });
+        }
+
+        const solicitadoPorId =
+          requerimientoActual.Solicitante?.Id;
+
+        if (!solicitadoPorId) {
+          throw new Error(
+            'El requerimiento no tiene un solicitante válido.'
+          );
+        }
+
+        await crearOrdenCompraSiNoExiste(
+          requerimientoActual,
+          cotizacionSeleccionadaId,
+          solicitadoPorId
+        );
+      } else {
+        // Un requerimiento rechazado no debe conservar
+        // una cotización marcada como seleccionada.
+        for (const cotizacion of cotizacionesActuales) {
+          if (cotizacion.Seleccionada) {
+            await updateListItem(
+              'Cotizaciones',
+              cotizacion.Id,
+              { Seleccionada: false }
+            );
+          }
+        }
       }
 
       await updateListItem('Requerimientos', requerimientoId, {
         Estado: aprobar ? 'Aprobado' : 'Rechazado',
         EtapaActual: aprobar
-          ? (selectedRequerimiento.Recurrente ? 'GenerarOC' : 'SolicitarOC')
+          ? (
+              requerimientoActual.Recurrente
+                ? 'GenerarOC'
+                : 'SolicitarOC'
+            )
           : 'Aprobacion',
         FechaAprobacion: new Date().toISOString(),
         ComentarioAprobador: comentarioAprobador.trim(),
-        DecisionPorId: user.id
+        DecisionPorId: user.id,
+        ...(aprobar && valorCotizacionAprobada !== undefined
+          ? { ValorTotal: valorCotizacionAprobada }
+          : {})
       });
 
       setSelectedRequerimiento(null);
@@ -901,7 +1155,7 @@ Attachments: cotizacion.AttachmentFiles || []
 
       setMessage(
         aprobar
-          ? selectedRequerimiento.Recurrente
+          ? requerimientoActual.Recurrente
             ? `Requerimiento #${requerimientoId} aprobado. Se generó la orden de compra asociada a Contrato.`
             : `Requerimiento #${requerimientoId} aprobado. Se generó la solicitud de orden de compra OCV.`
           : `Requerimiento #${requerimientoId} rechazado correctamente.`
@@ -961,6 +1215,89 @@ Attachments: cotizacion.AttachmentFiles || []
     void loadDetalleRequerimiento(
       requerimiento.Id
     );
+  };
+
+  const continuarBorrador = async (
+    requerimiento: IRequerimientoItem
+  ): Promise<void> => {
+    if (!user || requerimiento.Estado !== 'Borrador') {
+      return;
+    }
+
+    const puedeEditar =
+      user.role === 'Admin' ||
+      (
+        user.role === 'Solicitador' &&
+        requerimiento.Solicitante?.Id === user.id
+      );
+
+    if (!puedeEditar) {
+      setMessage('No tienes permisos para editar este borrador.');
+      return;
+    }
+
+    try {
+      setLoadingDetalle(true);
+      setMessage('');
+
+      const detalle = await getCotizacionesDetalle(requerimiento.Id);
+
+      const cotizacionesBorrador: ICotizacionForm[] =
+        detalle.length > 0
+          ? detalle.map((cotizacion: ICotizacionDetalle) => ({
+              key: `draft-${cotizacion.Id}`,
+              id: cotizacion.Id,
+              valorTotal:
+                cotizacion.ValorTotal > 0
+                  ? String(cotizacion.ValorTotal)
+                  : '',
+              archivo: null,
+              adjuntosExistentes: cotizacion.Attachments
+            }))
+          : [createEmptyCotizacion()];
+
+      setEditingDraftId(requerimiento.Id);
+      setOriginalDraftCotizacionIds(
+        detalle.map((cotizacion: ICotizacionDetalle) => cotizacion.Id)
+      );
+      setDescripcion(requerimiento.Descripcion || '');
+      setCategoriaId(
+        requerimiento.CategoriaId
+          ? String(requerimiento.CategoriaId)
+          : ''
+      );
+      setRecurrente(requerimiento.Recurrente);
+      setCotizaciones(cotizacionesBorrador);
+      setCotizacionesDetalle(detalle);
+      setSelectedRequerimiento(null);
+      setArchivoPreview(null);
+      setCotizacionSeleccionadaId(null);
+      setActiveView('nueva');
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setLoadingDetalle(false);
+    }
+  };
+
+  const cancelarEdicionBorrador = (): void => {
+    setEditingDraftId(null);
+    setOriginalDraftCotizacionIds([]);
+    setDescripcion('');
+    setCategoriaId('');
+    setRecurrente(false);
+    setCotizaciones([createEmptyCotizacion()]);
+    setMessage('');
+
+    if (user) {
+      const destino: AppView =
+        user.role === 'Admin'
+          ? 'todas'
+          : 'mis';
+
+      setActiveView(destino);
+      void loadRequerimientos(destino, user.id);
+    }
   };
 
   /*
@@ -1043,123 +1380,279 @@ Attachments: cotizacion.AttachmentFiles || []
       }
 
       const categoriaSeleccionada = categories.find(
-          (categoria: ICategory) => categoria.Id === Number(categoriaId)
+        (categoria: ICategory) =>
+          categoria.Id === Number(categoriaId)
+      );
+
+      if (!categoriaSeleccionada) {
+        throw new Error(
+          'No se pudo obtener la categoría seleccionada.'
         );
+      }
 
-        if (!categoriaSeleccionada) {
-          throw new Error(
-            'No se pudo obtener la categoría seleccionada.'
-          );
-        }
+      const aprobadorId = MODO_PRUEBAS
+        ? categoriaSeleccionada.AprobadorPruebaId
+        : categoriaSeleccionada.AprobadorCategoriaId;
 
-        const aprobadorId = MODO_PRUEBAS
-          ? categoriaSeleccionada.AprobadorPruebaId
-          : categoriaSeleccionada.AprobadorCategoriaId;
+      console.log('ENRUTAMIENTO APROBADOR:', {
+        modo: MODO_PRUEBAS ? 'PRUEBAS' : 'PRODUCCION',
+        categoriaId: categoriaSeleccionada.Id,
+        categoria: categoriaSeleccionada.NombreCategoria,
+        aprobadorCategoriaId: categoriaSeleccionada.AprobadorCategoriaId,
+        aprobadorPruebaId: categoriaSeleccionada.AprobadorPruebaId,
+        aprobadorElegidoId: aprobadorId
+      });
 
-        if (enviar && !aprobadorId) {
-          throw new Error(
-            MODO_PRUEBAS
-              ? 'La categoría seleccionada no tiene un aprobador de prueba configurado.'
-              : 'La categoría seleccionada no tiene un aprobador configurado.'
-          );
-        }
+      if (enviar && !aprobadorId) {
+        throw new Error(
+          MODO_PRUEBAS
+            ? 'La categoría seleccionada no tiene un aprobador de prueba configurado.'
+            : 'La categoría seleccionada no tiene un aprobador configurado.'
+        );
+      }
 
       if (cotizaciones.length < 1 || cotizaciones.length > 3) {
-        throw new Error('El requerimiento debe tener entre 1 y 3 cotizaciones.');
+        throw new Error(
+          'El requerimiento debe tener entre 1 y 3 cotizaciones.'
+        );
       }
 
       if (enviar) {
-        cotizaciones.forEach((cotizacion, cotizacionIndex) => {
-          const totalCotizacion = Number(cotizacion.valorTotal);
-          if (!cotizacion.valorTotal || isNaN(totalCotizacion) || totalCotizacion <= 0) {
-            throw new Error(`Ingrese un valor total válido en la cotización ${cotizacionIndex + 1}.`);
-          }
+        cotizaciones.forEach(
+          (
+            cotizacion: ICotizacionForm,
+            cotizacionIndex: number
+          ) => {
+            const totalCotizacion =
+              Number(cotizacion.valorTotal);
 
-          if (!cotizacion.archivo) {
-            throw new Error(`Adjunte el PDF de la cotización ${cotizacionIndex + 1}.`);
+            if (
+              !cotizacion.valorTotal ||
+              isNaN(totalCotizacion) ||
+              totalCotizacion <= 0
+            ) {
+              throw new Error(
+                `Ingrese un valor total válido en la cotización ${cotizacionIndex + 1}.`
+              );
+            }
+
+            const tienePdf =
+              !!cotizacion.archivo ||
+              cotizacion.adjuntosExistentes.length > 0;
+
+            if (!tienePdf) {
+              throw new Error(
+                `Adjunte el PDF de la cotización ${cotizacionIndex + 1}.`
+              );
+            }
           }
-        });
+        );
       }
 
-      // Valor referencial del requerimiento:
-      // - 1 cotización: toma ese mismo valor.
-      // - 2 o 3 cotizaciones: calcula el promedio.
       const valoresCotizaciones = cotizaciones
-        .map((cotizacion) => Number(cotizacion.valorTotal))
-        .filter((valor) => !isNaN(valor) && valor > 0);
+        .map((cotizacion: ICotizacionForm) =>
+          Number(cotizacion.valorTotal)
+        )
+        .filter(
+          (valor: number) =>
+            !isNaN(valor) && valor > 0
+        );
 
-      const numericValue =
+      const valorPromedio =
         valoresCotizaciones.length > 0
-          ? valoresCotizaciones.reduce((total, valor) => total + valor, 0) /
-            valoresCotizaciones.length
+          ? valoresCotizaciones.reduce(
+              (total: number, valor: number) =>
+                total + valor,
+              0
+            ) / valoresCotizaciones.length
           : 0;
 
-      const itemId = await createListItem('Requerimientos', {
-        Title: descripcion.trim().substring(0, 255),
-        Descripcion: descripcion.trim(),
-        SolicitanteId: user.id,
-        CategoriaId: Number(categoriaId),
-        AprobadorId: aprobadorId,
-        Recurrente: recurrente,
-        ValorTotal: numericValue,
-        EtapaActual: enviar ? 'Aprobacion' : 'Solicitud',
-        Estado: enviar ? 'Enviado Aprobacion' : 'Borrador'
-      });
+      const esEdicionBorrador =
+        editingDraftId !== null;
 
-      for (let c = 0; c < cotizaciones.length; c += 1) {
+      let itemId: number;
+
+      if (esEdicionBorrador && editingDraftId) {
+        itemId = editingDraftId;
+
+        await updateListItem(
+          'Requerimientos',
+          itemId,
+          {
+            Title:
+              descripcion.trim().substring(0, 255),
+            Descripcion: descripcion.trim(),
+            Area: user.area || '',
+            CategoriaId: Number(categoriaId),
+            Recurrente: recurrente,
+            ValorPromedio: valorPromedio,
+            ValorTotal: null,
+            EtapaActual: 'Solicitud',
+            Estado: 'Borrador',
+            AprobadorId: null
+          }
+        );
+
+        const idsActuales = cotizaciones
+          .map(
+            (cotizacion: ICotizacionForm) =>
+              cotizacion.id
+          )
+          .filter(
+            (id: number | undefined): id is number =>
+              typeof id === 'number'
+          );
+
+        const idsEliminados =
+          originalDraftCotizacionIds.filter(
+            (id: number) =>
+              idsActuales.indexOf(id) < 0
+          );
+
+        for (const cotizacionId of idsEliminados) {
+          await updateListItem(
+            'Cotizaciones',
+            cotizacionId,
+            { Activo: false }
+          );
+        }
+      } else {
+        itemId = await createListItem(
+          'Requerimientos',
+          {
+            Title:
+              descripcion.trim().substring(0, 255),
+            Descripcion: descripcion.trim(),
+            SolicitanteId: user.id,
+            Area: user.area || '',
+            CategoriaId: Number(categoriaId),
+            AprobadorId: null,
+            Recurrente: recurrente,
+            ValorPromedio: valorPromedio,
+            ValorTotal: null,
+            EtapaActual: 'Solicitud',
+            Estado: 'Borrador'
+          }
+        );
+      }
+
+      for (
+        let c = 0;
+        c < cotizaciones.length;
+        c += 1
+      ) {
         const cotizacion = cotizaciones[c];
 
-        // En borrador solo persistimos cotizaciones que tengan algún dato ingresado.
         const tieneDatos =
           !!cotizacion.archivo ||
+          cotizacion.adjuntosExistentes.length > 0 ||
           !!cotizacion.valorTotal;
 
         if (!enviar && !tieneDatos) {
           continue;
         }
 
-        const totalCotizacion = Number(cotizacion.valorTotal) || 0;
-        const cotizacionBody: Record<string, unknown> = {
-          Title: `REQ-${itemId}-COT-${c + 1}`,
-          RequerimientoId: itemId,
-          CodigoCotizacionInterno: `COT-REQ-${('000000' + itemId).slice(-6)}-${('00' + (c + 1)).slice(-2)}`,
-          ValorTotal: totalCotizacion,
-          Seleccionada: false,
-          Activo: true
-        };
+        const totalCotizacion =
+          Number(cotizacion.valorTotal) || 0;
 
+        let cotizacionId =
+          cotizacion.id;
 
-        const cotizacionId = await createListItem('Cotizaciones', cotizacionBody);
+        if (cotizacionId) {
+          await updateListItem(
+            'Cotizaciones',
+            cotizacionId,
+            {
+              ValorTotal: totalCotizacion,
+              Seleccionada: false,
+              Activo: true
+            }
+          );
+        } else {
+          const cotizacionBody:
+            Record<string, unknown> = {
+              Title:
+                `REQ-${itemId}-COT-${c + 1}`,
+              RequerimientoId: itemId,
+              CodigoCotizacionInterno:
+                `COT-REQ-${('000000' + itemId).slice(-6)}-${('00' + (c + 1)).slice(-2)}`,
+              ValorTotal: totalCotizacion,
+              Seleccionada: false,
+              Activo: true
+            };
+
+          cotizacionId =
+            await createListItem(
+              'Cotizaciones',
+              cotizacionBody
+            );
+        }
 
         if (cotizacion.archivo) {
           const isPdf =
-            cotizacion.archivo.type === 'application/pdf' ||
-            /\.pdf$/i.test(cotizacion.archivo.name);
-          if (!isPdf) {
-            throw new Error(`El archivo de la cotización ${c + 1} debe ser PDF.`);
-          }
-          await adjuntarArchivo('Cotizaciones', cotizacionId, cotizacion.archivo);
-        }
+            cotizacion.archivo.type ===
+              'application/pdf' ||
+            /\.pdf$/i.test(
+              cotizacion.archivo.name
+            );
 
+          if (!isPdf) {
+            throw new Error(
+              `El archivo de la cotización ${c + 1} debe ser PDF.`
+            );
+          }
+
+          await adjuntarArchivo(
+            'Cotizaciones',
+            cotizacionId,
+            cotizacion.archivo
+          );
+        }
+      }
+
+      if (enviar && aprobadorId) {
+        await updateListItem(
+          'Requerimientos',
+          itemId,
+          {
+            Area: user.area || '',
+            CategoriaId: Number(categoriaId),
+            AprobadorId: aprobadorId,
+            ValorPromedio: valorPromedio,
+            ValorTotal: null,
+            EtapaActual: 'Aprobacion',
+            Estado: 'Enviado Aprobacion'
+          }
+        );
       }
 
       setDescripcion('');
       setCategoriaId('');
       setRecurrente(false);
       setCotizaciones([createEmptyCotizacion()]);
+      setEditingDraftId(null);
+      setOriginalDraftCotizacionIds([]);
 
       if (user.role === 'Solicitador') {
         setActiveView('mis');
-        await loadRequerimientos('mis', user.id);
+        await loadRequerimientos(
+          'mis',
+          user.id
+        );
       } else {
         setActiveView('todas');
-        await loadRequerimientos('todas', user.id);
+        await loadRequerimientos(
+          'todas',
+          user.id
+        );
       }
 
       setMessage(
         enviar
           ? `Requerimiento #${itemId} enviado a aprobación correctamente.`
-          : `Requerimiento #${itemId} guardado como borrador.`
+          : esEdicionBorrador
+            ? `Borrador #${itemId} actualizado correctamente.`
+            : `Requerimiento #${itemId} guardado como borrador.`
       );
     } catch (error) {
       setMessage(getErrorMessage(error));
@@ -1356,7 +1849,22 @@ Attachments: cotizacion.AttachmentFiles || []
       ) && activeView === 'nueva' && (
         <div className={styles.formWorkspace}>
           <div className={styles.compactFormIntro}>
-            <h2 className={styles.pageTitle}>Nueva solicitud</h2>
+            <h2 className={styles.pageTitle}>
+              {editingDraftId
+                ? `Editar borrador #${editingDraftId}`
+                : 'Nueva solicitud'}
+            </h2>
+
+            {editingDraftId && (
+              <button
+                type="button"
+                className={styles.backButton}
+                disabled={saving}
+                onClick={cancelarEdicionBorrador}
+              >
+                Cancelar edición
+              </button>
+            )}
           </div>
 
           <section className={`${styles.formSection} ${styles.compactRequestSection}`}>
@@ -1479,6 +1987,19 @@ Attachments: cotizacion.AttachmentFiles || []
                             ×
                           </button>
                         </div>
+                      ) : cotizacion.adjuntosExistentes.length > 0 ? (
+                        <div className={styles.pdfFileChip}>
+                          <span className={styles.pdfFileIcon} aria-hidden="true">PDF</span>
+                          <span
+                            className={styles.pdfFileName}
+                            title={cotizacion.adjuntosExistentes[0].FileName}
+                          >
+                            {cotizacion.adjuntosExistentes[0].FileName}
+                          </span>
+                          <span title="Archivo ya guardado en SharePoint">
+                            ✓
+                          </span>
+                        </div>
                       ) : (
                         <label className={styles.fileUpload}>
                           <input
@@ -1555,7 +2076,11 @@ Attachments: cotizacion.AttachmentFiles || []
           <div className={`${styles.stickyActions} ${styles.compactStickyActions}`}>
             <div className={styles.actions}>
               <button type="button" className={styles.secondaryButton} disabled={saving} onClick={() => { void saveRequerimiento(false); }}>
-                {saving ? 'Guardando...' : 'Guardar borrador'}
+                {saving
+                  ? 'Guardando...'
+                  : editingDraftId
+                    ? 'Actualizar borrador'
+                    : 'Guardar borrador'}
               </button>
               <button type="button" className={styles.primaryButton} disabled={saving} onClick={() => { void saveRequerimiento(true); }}>
                 {saving ? 'Procesando...' : 'Enviar a aprobación →'}
@@ -1612,8 +2137,22 @@ Attachments: cotizacion.AttachmentFiles || []
                 </div>
                 <div className={styles.readOnlyField}>
                   <small>Valor promedio</small>
-                  <strong>{formatCurrency(selectedRequerimiento.ValorTotal)}</strong>
+                  <strong>
+                    {formatCurrency(
+                      selectedRequerimiento.ValorPromedio ??
+                      selectedRequerimiento.ValorTotal ??
+                      0
+                    )}
+                  </strong>
                 </div>
+                {selectedRequerimiento.Estado === 'Aprobado' &&
+                  selectedRequerimiento.ValorPromedio !== undefined &&
+                  selectedRequerimiento.ValorPromedio !== null && (
+                  <div className={styles.readOnlyField}>
+                    <small>Valor aprobado</small>
+                    <strong>{formatCurrency(selectedRequerimiento.ValorTotal)}</strong>
+                  </div>
+                )}
               </div>
 
               <div className={styles.compactDescriptionReadOnly}>
@@ -1823,6 +2362,30 @@ Attachments: cotizacion.AttachmentFiles || []
                 </strong>
               </div>
 
+              {selectedRequerimiento.Estado === 'Borrador' &&
+                (
+                  user?.role === 'Admin' ||
+                  (
+                    user?.role === 'Solicitador' &&
+                    selectedRequerimiento.Solicitante?.Id === user.id
+                  )
+                ) && (
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      className={styles.primaryButton}
+                      disabled={loadingDetalle}
+                      onClick={() => {
+                        void continuarBorrador(
+                          selectedRequerimiento
+                        );
+                      }}
+                    >
+                      Continuar borrador →
+                    </button>
+                  </div>
+                )}
+
               {(user?.role === 'Aprobador' || user?.role === 'Admin') &&
                 selectedRequerimiento.Estado === 'Enviado Aprobacion' && (
                   <div className={styles.actions}>
@@ -1899,7 +2462,15 @@ Attachments: cotizacion.AttachmentFiles || []
                           <small>{requerimiento.Solicitante?.Title || 'Sin solicitante'}</small>
                         </td>
                         <td>{getCategoriaNombre(requerimiento.CategoriaId)}</td>
-                        <td><strong>{formatCurrency(requerimiento.ValorTotal)}</strong></td>
+                        <td>
+                          <strong>
+                            {formatCurrency(
+                              requerimiento.Estado === 'Aprobado'
+                                ? requerimiento.ValorTotal
+                                : (requerimiento.ValorPromedio ?? requerimiento.ValorTotal ?? 0)
+                            )}
+                          </strong>
+                        </td>
                         <td>
                           <div className={styles.tableStatusCell}>
                             <span className={styles.stageBadge}>{getEtapaLabel(requerimiento.EtapaActual)}</span>

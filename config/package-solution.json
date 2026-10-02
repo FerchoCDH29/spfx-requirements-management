@@ -3,7 +3,7 @@
   "solution": {
     "name": "spfx-gestor-client-side-solution",
     "id": "0c540eb2-144c-47b8-a687-929329034f67",
-    "version": "1.1.1.0",
+    "version": "1.2.0.0",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
