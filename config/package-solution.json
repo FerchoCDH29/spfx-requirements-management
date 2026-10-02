@@ -3,7 +3,7 @@
   "solution": {
     "name": "spfx-gestor-client-side-solution",
     "id": "0c540eb2-144c-47b8-a687-929329034f67",
-    "version": "1.0.0.0",
+    "version": "1.1.1.0",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
@@ -13,11 +13,12 @@
       "privacyUrl": "",
       "termsOfUseUrl": "",
       "mpnId": "Undefined-1.23.2",
-      "webApiPermissionRequests" : [
-        {"resource": "Microsoft Graph",
-        "scope": "User.Read"
+      "webApiPermissionRequests": [
+        {
+          "resource": "Microsoft Graph",
+          "scope": "User.Read"
         }
-]
+      ]
     },
     "metadata": {
       "shortDescription": {

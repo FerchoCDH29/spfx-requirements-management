@@ -143,6 +143,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   const [cotizacionSeleccionadaId, setCotizacionSeleccionadaId] =
     useState<number | null>(null);
 
+  const [archivoPreview, setArchivoPreview] =
+    useState<IAdjuntoCotizacion | null>(null);
+
   const [searchTerm, setSearchTerm] =
     useState<string>('');
 
@@ -743,6 +746,42 @@ Attachments: cotizacion.AttachmentFiles || []
     }
   };
 
+  const createListItem = async (
+    listTitle: string,
+    body: Record<string, unknown>
+  ): Promise<number> => {
+    const url =
+      `${context.pageContext.web.absoluteUrl}` +
+      `/_api/web/lists/getbytitle('${listTitle}')/items`;
+
+    const response = await context.spHttpClient.post(
+      url,
+      SPHttpClient.configurations.v1,
+      {
+        headers: {
+          Accept: 'application/json;odata=nometadata',
+          'Content-Type': 'application/json;odata=nometadata'
+        },
+        body: JSON.stringify(body)
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Error creando elemento en ${listTitle}. HTTP ${response.status}: ${errorText}`
+      );
+    }
+
+    const created = await response.json();
+    const id = created.Id || created.ID;
+    if (!id) {
+      throw new Error(`Se creó el elemento en ${listTitle}, pero no se obtuvo su ID.`);
+    }
+    return Number(id);
+  };
+
+
   const crearOrdenCompraSiNoExiste = async (
     requerimiento: IRequerimientoItem,
     cotizacionId: number,
@@ -916,6 +955,7 @@ Attachments: cotizacion.AttachmentFiles || []
     setSelectedRequerimiento(requerimiento);
     setComentarioAprobador('');
     setCotizacionSeleccionadaId(null);
+    setArchivoPreview(null);
     setMessage('');
 
     void loadDetalleRequerimiento(
@@ -950,41 +990,6 @@ Attachments: cotizacion.AttachmentFiles || []
     setCotizaciones(cotizaciones.map((cotizacion, index) =>
       index === cotizacionIndex ? { ...cotizacion, ...changes } : cotizacion
     ));
-  };
-
-  const createListItem = async (
-    listTitle: string,
-    body: Record<string, unknown>
-  ): Promise<number> => {
-    const url =
-      `${context.pageContext.web.absoluteUrl}` +
-      `/_api/web/lists/getbytitle('${listTitle}')/items`;
-
-    const response = await context.spHttpClient.post(
-      url,
-      SPHttpClient.configurations.v1,
-      {
-        headers: {
-          Accept: 'application/json;odata=nometadata',
-          'Content-Type': 'application/json;odata=nometadata'
-        },
-        body: JSON.stringify(body)
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Error creando elemento en ${listTitle}. HTTP ${response.status}: ${errorText}`
-      );
-    }
-
-    const created = await response.json();
-    const id = created.Id || created.ID;
-    if (!id) {
-      throw new Error(`Se creó el elemento en ${listTitle}, pero no se obtuvo su ID.`);
-    }
-    return Number(id);
   };
 
   const adjuntarArchivo = async (
@@ -1171,8 +1176,13 @@ Attachments: cotizacion.AttachmentFiles || []
 
   if (loading) {
     return (
-      <div className={styles.requerimientos}>
-        Cargando información...
+      <div className={styles.requerimientos} aria-busy="true" aria-label="Cargando información">
+        <div className={styles.loadingSkeleton}>
+          <div className={styles.skeletonTop} />
+          <div className={styles.skeletonTitle} />
+          <div className={styles.skeletonTabs} />
+          <div className={styles.skeletonPanel} />
+        </div>
       </div>
     );
   }
@@ -1181,84 +1191,40 @@ Attachments: cotizacion.AttachmentFiles || []
 
     <div className={styles.requerimientos}>
 
-      {/* BARRA SUPERIOR */}
+      {/* CABECERA COMPACTA */}
 
       <div className={styles.topBar}>
-
         <div className={styles.brand}>
           <img
             src={inovaLogo}
             alt="Inova Solutions"
             className={styles.logo}
           />
+          <div className={styles.brandText}>
+            <span className={styles.eyebrow}>OPERACIONES</span>
+            <h1 className={styles.title}>Gestión de Requerimientos</h1>
+          </div>
         </div>
 
         <div className={styles.headerUser}>
-
           {user && (
             <>
-              <div
-                className={
-                  styles.headerUserText
-                }
-              >
-                <strong>
-                  {user.displayName}
-                </strong>
-
-                <span>
-                  {user.area ? `${user.area} · ${user.role}` : user.role}
-                </span>
+              <div className={styles.headerUserText}>
+                <strong>{user.displayName}</strong>
+                <span>{user.area ? `${user.area} · ${user.role}` : user.role}</span>
               </div>
 
               <img
-                className={
-                  styles.avatarSmall
-                }
+                className={styles.avatarSmall}
                 src={
                   `${context.pageContext.web.absoluteUrl}` +
                   `/_layouts/15/userphoto.aspx?size=M&accountname=${encodeURIComponent(user.email)}`
                 }
-                alt={
-                  user.displayName
-                }
+                alt={user.displayName}
               />
             </>
           )}
-
         </div>
-
-      </div>
-
-      {/* ENCABEZADO */}
-
-      <div className={styles.header}>
-
-        <span
-          className={
-            styles.sectionLabel
-          }
-        >
-          SOLICITUDES
-        </span>
-
-        <h1
-          className={
-            styles.title
-          }
-        >
-          Gestión de Requerimientos
-        </h1>
-
-        <p
-          className={
-            styles.subtitle
-          }
-        >
-          Crea, consulta y da seguimiento
-          a los requerimientos desde una sola vista.
-        </p>
-
       </div>
 
       {/* SIN ACCESO */}
@@ -1389,193 +1355,204 @@ Attachments: cotizacion.AttachmentFiles || []
         user?.role === 'Admin'
       ) && activeView === 'nueva' && (
         <div className={styles.formWorkspace}>
-          <div className={styles.pageIntro}>
-            <div>
-              <span className={styles.eyebrow}>NUEVO EXPEDIENTE</span>
-              <h2 className={styles.pageTitle}>Crear requerimiento</h2>
-              <p className={styles.pageDescription}>
-                Selecciona la categoría, describe la necesidad y adjunta las cotizaciones para enviarlas a aprobación.
-              </p>
-            </div>
-            <div className={styles.formProgress}>Solicitud · Paso inicial</div>
+          <div className={styles.compactFormIntro}>
+            <h2 className={styles.pageTitle}>Nueva solicitud</h2>
           </div>
 
-          <section className={styles.formSection}>
-            <div className={styles.sectionHeader}>
-              <div className={styles.sectionNumber}>01</div>
-              <div>
-                <h3>Datos del requerimiento</h3>
-                <p>Selecciona la categoría, describe la necesidad y define el tipo de proceso.</p>
+          <section className={`${styles.formSection} ${styles.compactRequestSection}`}>
+            <div className={styles.compactRequestGrid}>
+              <div className={styles.formGroup}>
+                <label className={styles.label} htmlFor="requerimiento-categoria">Categoría</label>
+                <select
+                  id="requerimiento-categoria"
+                  className={styles.select}
+                  value={categoriaId}
+                  onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                    setCategoriaId(event.target.value)
+                  }
+                >
+                  <option value="">Seleccione una categoría</option>
+                  {categories.map((category: ICategory) => (
+                    <option key={category.Id} value={category.Id}>
+                      {category.NombreCategoria}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </div>
 
-            <div className={styles.formGroup}>
-              <label className={styles.label}>Categoría</label>
-              <select
-                className={styles.select}
-                value={categoriaId}
-                onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
-                  setCategoriaId(event.target.value)
-                }
-              >
-                <option value="">Seleccione una categoría</option>
-                {categories.map((category: ICategory) => (
-                  <option key={category.Id} value={category.Id}>
-                    {category.NombreCategoria}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Tipo</label>
+                <div className={styles.compactProcessOptions}>
+                  <button
+                    type="button"
+                    className={`${styles.compactProcessOption} ${!recurrente ? styles.compactProcessOptionActive : ''}`}
+                    aria-pressed={!recurrente}
+                    onClick={() => setRecurrente(false)}
+                  >
+                    <span className={styles.toggleDot} />
+                    <span>
+                      <strong>No recurrente</strong>
+                      <small>OCV</small>
+                    </span>
+                  </button>
 
-            <div className={styles.formGroup}>
-              <label className={styles.label}>Descripción del requerimiento</label>
-              <textarea
-                className={styles.textarea}
-                value={descripcion}
-                placeholder="Describe brevemente el producto, servicio o necesidad..."
-                onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
-                  setDescripcion(event.target.value)
-                }
-                rows={4}
-              />
-            </div>
+                  <button
+                    type="button"
+                    className={`${styles.compactProcessOption} ${recurrente ? styles.compactProcessOptionActive : ''}`}
+                    aria-pressed={recurrente}
+                    onClick={() => setRecurrente(true)}
+                  >
+                    <span className={styles.toggleDot} />
+                    <span>
+                      <strong>Recurrente</strong>
+                      <small>Contrato</small>
+                    </span>
+                  </button>
+                </div>
+              </div>
 
-            <div className={styles.formGroup}>
-              <label className={styles.label}>Tipo de proceso</label>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <button
-                  type="button"
-                  className={`${styles.recurrentToggle} ${!recurrente ? styles.recurrentToggleActive : ''}`}
-                  onClick={() => setRecurrente(false)}
-                >
-                  <span className={styles.toggleDot} />
-                  <span>
-                    <strong>No recurrente</strong>
-                    <small>Compra única o ajuste de contrato · Genera solicitud OCV</small>
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  className={`${styles.recurrentToggle} ${recurrente ? styles.recurrentToggleActive : ''}`}
-                  onClick={() => setRecurrente(true)}
-                >
-                  <span className={styles.toggleDot} />
-                  <span>
-                    <strong>Recurrente</strong>
-                    <small>Servicio o compra periódica · Genera orden asociada a Contrato</small>
-                  </span>
-                </button>
+              <div className={`${styles.formGroup} ${styles.compactDescription}`}>
+                <label className={styles.label} htmlFor="requerimiento-descripcion">Descripción</label>
+                <textarea
+                  id="requerimiento-descripcion"
+                  className={styles.textarea}
+                  value={descripcion}
+                  placeholder="Describe la necesidad..."
+                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                    setDescripcion(event.target.value)
+                  }
+                  rows={3}
+                />
               </div>
             </div>
           </section>
 
           <section className={styles.formSection}>
-            <div className={styles.sectionHeaderRow}>
-              <div className={styles.sectionHeader}>
-                <div className={styles.sectionNumber}>02</div>
-                <div>
-                  <h3>Cotizaciones</h3>
-                  <p>Registra hasta tres cotizaciones con su valor total y documento PDF.</p>
-                </div>
-              </div>
-              <span className={styles.counterBadge}>{cotizaciones.length} de 3</span>
+            <div className={`${styles.sectionHeaderRow} ${styles.compactQuotationHeader}`}>
+              <h3>Cotizaciones</h3>
+              <span className={styles.counterBadge}>{cotizaciones.length} / 3</span>
             </div>
 
             <div className={styles.quotationList}>
               {cotizaciones.map((cotizacion, cotizacionIndex) => (
                 <div key={cotizacion.key} className={styles.quotationCard}>
                   <div className={styles.quotationHeader}>
-                    <div>
-                      <span className={styles.quotationLabel}>COTIZACIÓN {String(cotizacionIndex + 1)}</span>
-                      <h3>Propuesta comercial</h3>
-                    </div>
-                    <div className={styles.quotationAmount}>
-                      <small>Total cotización</small>
-                      <strong>{formatCurrency(Number(cotizacion.valorTotal) || 0)}</strong>
-                    </div>
+                    <span className={styles.quotationLabel}>
+                      COTIZACIÓN {String(cotizacionIndex + 1)}
+                    </span>
+
+                    {cotizaciones.length > 1 && (
+                      <button
+                        type="button"
+                        className={styles.quotationDeleteButton}
+                        onClick={() => eliminarCotizacion(cotizacionIndex)}
+                        aria-label={`Eliminar cotización ${cotizacionIndex + 1}`}
+                        title={`Eliminar cotización ${cotizacionIndex + 1}`}
+                      >
+                        <span aria-hidden="true">🗑</span>
+                      </button>
+                    )}
                   </div>
 
-                  <div className={styles.formGroup}>
-                    <label className={styles.label}>Documento PDF</label>
-                    <label className={styles.fileUpload}>
-                      <input
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                          const selectedFile = event.target.files?.[0] || null;
+                  <div className={styles.quotationBody}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>PDF</label>
 
-                          if (selectedFile) {
-                            const isPdf =
-                              selectedFile.type === 'application/pdf' ||
-                              /\.pdf$/i.test(selectedFile.name);
-
-                            if (!isPdf) {
-                              setMessage('Solo se permiten archivos PDF.');
-                              event.target.value = '';
-                              return;
+                      {cotizacion.archivo ? (
+                        <div className={styles.pdfFileChip}>
+                          <span className={styles.pdfFileIcon} aria-hidden="true">PDF</span>
+                          <span
+                            className={styles.pdfFileName}
+                            title={cotizacion.archivo.name}
+                          >
+                            {cotizacion.archivo.name}
+                          </span>
+                          <button
+                            type="button"
+                            className={styles.pdfFileRemove}
+                            onClick={() =>
+                              actualizarCotizacion(cotizacionIndex, { archivo: null })
                             }
+                            aria-label={`Quitar PDF de cotización ${cotizacionIndex + 1}`}
+                            title="Quitar archivo"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : (
+                        <label className={styles.fileUpload}>
+                          <input
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            aria-label={`Adjuntar PDF de cotización ${cotizacionIndex + 1}`}
+                            onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                              const selectedFile = event.target.files?.[0] || null;
+
+                              if (selectedFile) {
+                                const isPdf =
+                                  selectedFile.type === 'application/pdf' ||
+                                  /\.pdf$/i.test(selectedFile.name);
+
+                                if (!isPdf) {
+                                  setMessage('Solo se permiten archivos PDF.');
+                                  event.target.value = '';
+                                  return;
+                                }
+                              }
+
+                              setMessage('');
+                              actualizarCotizacion(cotizacionIndex, { archivo: selectedFile });
+                            }}
+                          />
+                          <span className={styles.fileUploadIcon} aria-hidden="true">↑</span>
+                          <span className={styles.fileUploadText}>Adjuntar PDF</span>
+                        </label>
+                      )}
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Valor</label>
+                      <div className={styles.moneyInput}>
+                        <span>$</span>
+                        <input
+                          className={styles.input}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={cotizacion.valorTotal}
+                          aria-label={`Valor de cotización ${cotizacionIndex + 1}`}
+                          onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                            actualizarCotizacion(cotizacionIndex, { valorTotal: event.target.value })
                           }
-
-                          setMessage('');
-                          actualizarCotizacion(cotizacionIndex, { archivo: selectedFile });
-                        }}
-                      />
-                      <span>
-                        {cotizacion.archivo
-                          ? `✓ ${cotizacion.archivo.name}`
-                          : 'Adjuntar PDF'}
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label className={styles.label}>Valor total de la cotización</label>
-                    <div className={styles.moneyInput}>
-                      <span>$</span>
-                      <input
-                        className={styles.input}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={cotizacion.valorTotal}
-                        onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                          actualizarCotizacion(cotizacionIndex, { valorTotal: event.target.value })
-                        }
-                      />
+                        />
+                      </div>
                     </div>
                   </div>
 
                   <div className={styles.quotationFooter}>
-                    {cotizaciones.length > 1 && (
-                      <button type="button" className={styles.dangerLink} onClick={() => eliminarCotizacion(cotizacionIndex)}>
-                        Eliminar cotización
-                      </button>
-                    )}
-                    <div className={styles.quotationGrandTotal}>
-                      <span>Total</span>
-                      <strong>{formatCurrency(Number(cotizacion.valorTotal) || 0)}</strong>
-                    </div>
+                    <span>Total</span>
+                    <strong>{formatCurrency(Number(cotizacion.valorTotal) || 0)}</strong>
                   </div>
                 </div>
               ))}
-            </div>
 
-            {cotizaciones.length < 3 && (
-              <button type="button" className={styles.addQuotationButton} onClick={agregarCotizacion}>
-                <span>+</span>
-                <div><strong>Agregar otra cotización</strong><small>Puedes registrar hasta 3 propuestas</small></div>
-              </button>
-            )}
+              {cotizaciones.length < 3 && (
+                <button
+                  type="button"
+                  className={styles.addQuotationTile}
+                  onClick={agregarCotizacion}
+                  aria-label="Agregar cotización"
+                >
+                  <span className={styles.addQuotationIcon}>+</span>
+                  <strong>Agregar cotización</strong>
+                  <small>{cotizaciones.length} / 3</small>
+                </button>
+              )}
+            </div>
           </section>
 
-          <div className={styles.stickyActions}>
-            <div>
-              <strong>¿Listo para continuar?</strong>
-              <span>Puedes guardar el avance o enviarlo al flujo de aprobación.</span>
-            </div>
+          <div className={`${styles.stickyActions} ${styles.compactStickyActions}`}>
             <div className={styles.actions}>
               <button type="button" className={styles.secondaryButton} disabled={saving} onClick={() => { void saveRequerimiento(false); }}>
                 {saving ? 'Guardando...' : 'Guardar borrador'}
@@ -1592,42 +1569,100 @@ Attachments: cotizacion.AttachmentFiles || []
 
       {activeView !== 'nueva' && user?.role !== 'SinRol' && (
         selectedRequerimiento ? (
-          <div className={styles.detailWorkspace}>
-            <button type="button" className={styles.backButton} onClick={() => setSelectedRequerimiento(null)}>
-              ← Volver a solicitudes
-            </button>
+          <div className={`${styles.detailWorkspace} ${user?.role === 'Aprobador' ? styles.approverDetail : styles.requesterDetail}`}>
+            <div className={styles.detailTopBar}>
+              <button
+                type="button"
+                className={styles.backButton}
+                onClick={() => setSelectedRequerimiento(null)}
+              >
+                ← Solicitudes
+              </button>
 
-            <div className={styles.detailHero}>
-              <div>
-                <div className={styles.detailTopline}>
-                  <span>REQUERIMIENTO #{selectedRequerimiento.Id}</span>
-                  <span className={getEstadoClass(selectedRequerimiento.Estado)}>{selectedRequerimiento.Estado}</span>
+              <div className={styles.detailSectionHeading}>
+                <div className={styles.detailTitleRow}>
+                  <h2 className={styles.pageTitle}>Requerimiento #{selectedRequerimiento.Id}</h2>
+                  <span className={getEstadoClass(selectedRequerimiento.Estado)}>
+                    {selectedRequerimiento.Estado}
+                  </span>
                 </div>
-                <h2>{selectedRequerimiento.Descripcion}</h2>
-                <p>
-                  Solicitado por {selectedRequerimiento.Solicitante?.Title || 'Sin solicitante'} · {' '}
-                  {new Date(selectedRequerimiento.Created).toLocaleDateString('es-EC')}
-                </p>
-              </div>
-              <div className={styles.detailAmount}>
-                <small>Valor promedio de cotizaciones</small>
-                <strong>{formatCurrency(selectedRequerimiento.ValorTotal)}</strong>
+                {(user?.role === 'Aprobador' || user?.role === 'Admin') && (
+                  <span className={styles.roleAccentBadge}>Aprobador</span>
+                )}
               </div>
             </div>
 
-            <section className={styles.timelineCard}>
-              <div className={styles.timelineTitle}>
-                <div><span className={styles.eyebrow}>SEGUIMIENTO</span><h3>Etapas del proceso</h3></div>
-                <strong>{getEtapaLabel(selectedRequerimiento.EtapaActual)}</strong>
+            <section className={`${styles.detailCard} ${styles.unifiedRequestCard}`}>
+              <div className={styles.readOnlyFieldsGrid}>
+                <div className={styles.readOnlyField}>
+                  <small>Categoría</small>
+                  <strong>{getCategoriaNombre(selectedRequerimiento.CategoriaId)}</strong>
+                </div>
+                <div className={styles.readOnlyField}>
+                  <small>Tipo de proceso</small>
+                  <strong>{selectedRequerimiento.Recurrente ? 'Recurrente' : 'No recurrente'}</strong>
+                </div>
+                <div className={styles.readOnlyField}>
+                  <small>Solicitado por</small>
+                  <strong>{selectedRequerimiento.Solicitante?.Title || 'Sin solicitante'}</strong>
+                </div>
+                <div className={styles.readOnlyField}>
+                  <small>Fecha</small>
+                  <strong>{new Date(selectedRequerimiento.Created).toLocaleDateString('es-EC')}</strong>
+                </div>
+                <div className={styles.readOnlyField}>
+                  <small>Valor promedio</small>
+                  <strong>{formatCurrency(selectedRequerimiento.ValorTotal)}</strong>
+                </div>
               </div>
-              <div className={styles.timeline}>
+
+              <div className={styles.compactDescriptionReadOnly}>
+                <small>Descripción</small>
+                <p title={selectedRequerimiento.Descripcion}>{selectedRequerimiento.Descripcion}</p>
+              </div>
+
+              <div className={styles.detailMetaRow}>
+                <div>
+                  <small>Etapa actual</small>
+                  <span className={styles.stageBadge}>{getEtapaLabel(selectedRequerimiento.EtapaActual)}</span>
+                </div>
+                <div>
+                  <small>Estado</small>
+                  <span className={getEstadoClass(selectedRequerimiento.Estado)}>{selectedRequerimiento.Estado}</span>
+                </div>
+              </div>
+
+              {(selectedRequerimiento.Estado === 'Aprobado' ||
+                selectedRequerimiento.Estado === 'Rechazado') && (
+                <div className={styles.compactDecisionInfo}>
+                  <small>Decisión del aprobador</small>
+                  <span>
+                    <strong>
+                      {selectedRequerimiento.Estado === 'Aprobado' ? 'Aprobado por' : 'Rechazado por'}
+                    </strong>{' '}
+                    {selectedRequerimiento.DecisionPor?.Title || 'Sin información'}
+                    {selectedRequerimiento.FechaAprobacion && (
+                      <> · {new Date(selectedRequerimiento.FechaAprobacion).toLocaleDateString('es-EC')}</>
+                    )}
+                    {selectedRequerimiento.ComentarioAprobador && (
+                      <> · {selectedRequerimiento.ComentarioAprobador}</>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              <div className={styles.compactTimeline} aria-label="Etapas del proceso">
                 {getEtapas(selectedRequerimiento).map((etapa, index, etapas) => {
                   const currentIndex = Math.max(0, etapas.indexOf(selectedRequerimiento.EtapaActual || 'Solicitud'));
                   const completed = index < currentIndex || selectedRequerimiento.EtapaActual === 'Finalizado';
                   const current = index === currentIndex && selectedRequerimiento.EtapaActual !== 'Finalizado';
                   return (
-                    <div key={etapa} className={`${styles.timelineStep} ${completed ? styles.timelineCompleted : ''} ${current ? styles.timelineCurrent : ''}`}>
-                      <div className={styles.timelineMarker}>{completed ? '✓' : index + 1}</div>
+                    <div
+                      key={etapa}
+                      className={`${styles.compactTimelineStep} ${completed ? styles.timelineCompleted : ''} ${current ? styles.timelineCurrent : ''}`}
+                      aria-current={current ? 'step' : undefined}
+                    >
+                      <div className={styles.compactTimelineMarker}>{completed ? '✓' : index + 1}</div>
                       <span>{getEtapaLabel(etapa)}</span>
                     </div>
                   );
@@ -1635,210 +1670,139 @@ Attachments: cotizacion.AttachmentFiles || []
               </div>
             </section>
 
-            <div className={styles.detailGrid}>
-              <section className={styles.detailCard}>
-                <span className={styles.eyebrow}>INFORMACIÓN GENERAL</span>
-                <h3>Datos del requerimiento</h3>
-                <div className={styles.infoGrid}>
-                  <div><small>Categoría</small><strong>{getCategoriaNombre(selectedRequerimiento.CategoriaId)}</strong></div>
-                  <div><small>Tipo de proceso</small><strong>{selectedRequerimiento.Recurrente ? 'Recurrente' : 'No recurrente'}</strong></div>
-                  <div><small>Etapa actual</small><strong>{getEtapaLabel(selectedRequerimiento.EtapaActual)}</strong></div>
-                  <div><small>Estado</small><strong>{selectedRequerimiento.Estado}</strong></div>
-                </div>
-
-                {(selectedRequerimiento.Estado === 'Aprobado' ||
-                  selectedRequerimiento.Estado === 'Rechazado') && (
-                  <div className={styles.descriptionBox}>
-                    <small>Decisión del aprobador</small>
-                    <p>
-                      <strong>
-                        {selectedRequerimiento.Estado === 'Aprobado'
-                          ? 'Aprobado por'
-                          : 'Rechazado por'}
-                      </strong>{' '}
-                      {selectedRequerimiento.DecisionPor?.Title || 'Sin información'}
-                      {selectedRequerimiento.FechaAprobacion && (
-                        <>
-                          {' · '}
-                          {new Date(selectedRequerimiento.FechaAprobacion).toLocaleDateString('es-EC')}
-                        </>
-                      )}
-                    </p>
-                    {selectedRequerimiento.ComentarioAprobador && (
-                      <p>{selectedRequerimiento.ComentarioAprobador}</p>
-                    )}
-                  </div>
-                )}
-
-                <div className={styles.descriptionBox}>
-                  <small>Descripción</small>
-                  <p>{selectedRequerimiento.Descripcion}</p>
-                </div>
-              </section>
-
-              <aside className={styles.processCard}>
-                <span className={styles.eyebrow}>SIGUIENTE PASO</span>
-                <h3>{selectedRequerimiento.Estado === 'Borrador' ? 'Completar solicitud' : 'Seguimiento del expediente'}</h3>
-                <p>
-                  {selectedRequerimiento.Estado === 'Borrador'
-                    ? 'El requerimiento permanece como borrador y todavía no ha ingresado al flujo de aprobación.'
-                    : `El expediente se encuentra actualmente en ${getEtapaLabel(selectedRequerimiento.EtapaActual).toLowerCase()}.`}
-                </p>
-                            </aside>
-            </div>
-
-            {/* DETALLE DE COTIZACIONES */}
-
-            <section className={styles.detailCard}>
-
-              <span className={styles.eyebrow}>
-                COTIZACIONES
-              </span>
-
-              <h3>Propuestas recibidas</h3>
+            <section className={`${styles.formSection} ${styles.detailQuotationsSection}`}>
+              <div className={`${styles.sectionHeaderRow} ${styles.compactQuotationHeader}`}>
+                <h3>Cotizaciones</h3>
+                <span className={styles.counterBadge}>{cotizacionesDetalle.length} / 3</span>
+              </div>
 
               {loadingDetalle ? (
-
-                <div className={styles.emptyState}>
-                  Cargando cotizaciones...
+                <div className={styles.detailQuotationSkeletonGrid} aria-busy="true" aria-label="Cargando cotizaciones">
+                  {[0, 1, 2].map((item) => <div key={item} className={styles.detailQuotationSkeleton} />)}
                 </div>
-
               ) : cotizacionesDetalle.length === 0 ? (
-
-                <div className={styles.emptyState}>
-                  Este requerimiento no tiene cotizaciones registradas.
-                </div>
-
+                <div className={styles.emptyState}>Este requerimiento no tiene cotizaciones registradas.</div>
               ) : (
+                <div className={styles.approvalQuotationGrid}>
+                  {cotizacionesDetalle.map((cotizacion, cotizacionIndex) => {
+                    const puedeSeleccionar =
+                      (user?.role === 'Aprobador' || user?.role === 'Admin') &&
+                      selectedRequerimiento.Estado === 'Enviado Aprobacion';
+                    const seleccionada = cotizacionSeleccionadaId === cotizacion.Id;
+                    const aprobada = cotizacion.Seleccionada && selectedRequerimiento.Estado === 'Aprobado';
 
-                <div className={styles.quotationList}>
-
-                  {cotizacionesDetalle.map(
-                    (cotizacion, cotizacionIndex) => (
-
+                    return (
                       <div
                         key={cotizacion.Id}
-                        className={styles.quotationCard}
+                        className={`${styles.approvalQuotationCard} ${
+                          seleccionada || aprobada ? styles.approvalQuotationCardSelected : ''
+                        } ${puedeSeleccionar ? styles.approvalQuotationCardClickable : ''}`}
+                        role={puedeSeleccionar ? 'button' : undefined}
+                        tabIndex={puedeSeleccionar ? 0 : undefined}
+                        aria-pressed={puedeSeleccionar ? seleccionada : undefined}
+                        onClick={() => {
+                          if (puedeSeleccionar && !procesandoDecision) {
+                            setCotizacionSeleccionadaId(cotizacion.Id);
+                          }
+                        }}
+                        onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+                          if (puedeSeleccionar && (event.key === 'Enter' || event.key === ' ')) {
+                            event.preventDefault();
+                            setCotizacionSeleccionadaId(cotizacion.Id);
+                          }
+                        }}
                       >
-
-                        <div className={styles.quotationHeader}>
-
-                          <div>
-
-                            <span className={styles.quotationLabel}>
-                              COTIZACIÓN {cotizacionIndex + 1}
-                            </span>
-
-                            <h3>
-                              Propuesta comercial
-                            </h3>
-
+                        <div className={styles.readOnlyQuotationHeader}>
+                          <span className={styles.quotationLabel}>COTIZACIÓN {cotizacionIndex + 1}</span>
+                          <div className={styles.readOnlyQuotationHeaderMeta}>
                             {cotizacion.CodigoCotizacionInterno && (
-                              <small>
-                                {cotizacion.CodigoCotizacionInterno}
-                              </small>
+                              <small title={cotizacion.CodigoCotizacionInterno}>{cotizacion.CodigoCotizacionInterno}</small>
                             )}
-
+                            {(seleccionada || aprobada) && (
+                              <span className={styles.selectionCheck} title="Cotización seleccionada">✓</span>
+                            )}
                           </div>
-
-                          <div className={styles.quotationAmount}>
-                            <small>Total cotización</small>
-                            <strong>
-                              {formatCurrency(cotizacion.ValorTotal)}
-                            </strong>
-                          </div>
-
                         </div>
 
-                        {(user?.role === 'Aprobador' || user?.role === 'Admin') &&
-                          selectedRequerimiento.Estado === 'Enviado Aprobacion' && (
-                            <button
-                              type="button"
-                              className={`${styles.recurrentToggle} ${
-                                cotizacionSeleccionadaId === cotizacion.Id
-                                  ? styles.recurrentToggleActive
-                                  : ''
-                              }`}
-                              style={{ width: '100%', marginTop: 16 }}
-                              onClick={() => setCotizacionSeleccionadaId(cotizacion.Id)}
-                              disabled={procesandoDecision}
-                            >
-                              <span className={styles.toggleDot} />
-                              <span>
-                                <strong>
-                                  {cotizacionSeleccionadaId === cotizacion.Id
-                                    ? 'Cotización seleccionada'
-                                    : 'Seleccionar esta cotización'}
-                                </strong>
-                                <small>
-                                  {cotizacionSeleccionadaId === cotizacion.Id
-                                    ? 'Esta propuesta será aprobada'
-                                    : 'Elige esta propuesta para continuar con la aprobación'}
-                                </small>
-                              </span>
-                            </button>
-                        )}
-
-                        {cotizacion.Seleccionada &&
-                          selectedRequerimiento.Estado === 'Aprobado' && (
-                            <div style={{
-                              marginTop: 16,
-                              padding: '12px 16px',
-                              borderRadius: 10,
-                              background: '#f0fdf4',
-                              border: '1px solid #bbf7d0'
-                            }}>
-                              <strong>✓ Cotización aprobada</strong>
-                            </div>
-                        )}
-
-                        {cotizacion.Attachments.length > 0 && (
-                          <div style={{ marginTop: 24 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                              <div>
-                                <strong>Documento de cotización</strong>
-                                <span>Vista previa del archivo adjunto</span>
+                        <div className={styles.readOnlyQuotationBody}>
+                          <div className={styles.readOnlyQuotationField}>
+                            <small>PDF</small>
+                            {cotizacion.Attachments.length > 0 ? cotizacion.Attachments.map((archivo) => (
+                              <div key={archivo.ServerRelativeUrl} className={styles.readOnlyPdfChip}>
+                                <span className={styles.pdfFileIcon} aria-hidden="true">PDF</span>
+                                <span className={styles.pdfFileName} title={archivo.FileName}>{archivo.FileName}</span>
+                                <button
+                                  type="button"
+                                  className={styles.previewIconButton}
+                                  title="Visualizar PDF"
+                                  aria-label={`Visualizar ${archivo.FileName}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setArchivoPreview(archivo);
+                                  }}
+                                >
+                                  <svg
+                                    className={styles.previewEyeIcon}
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                  >
+                                    <path
+                                      d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="1.8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                    <circle
+                                      cx="12"
+                                      cy="12"
+                                      r="2.7"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="1.8"
+                                    />
+                                  </svg>
+                                  <span>Ver PDF</span>
+                                </button>
                               </div>
-                            </div>
-                            {cotizacion.Attachments.map((archivo) => (
-                              <div key={archivo.ServerRelativeUrl} style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', background: '#fff', marginTop: 12 }}>
-                                <div style={{ padding: '12px 16px', fontSize: 13, fontWeight: 600, borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>{archivo.FileName}</div>
-                                <iframe
-                                  title={archivo.FileName}
-                                  src={getVistaPreviaArchivo(archivo)}
-                                  style={{ display: 'block', width: '100%', height: 650, border: 0, background: '#f3f4f6' }}
-                                />
-                              </div>
-                            ))}
+                            )) : (
+                              <span className={styles.noFileText}>Sin documento adjunto</span>
+                            )}
                           </div>
-                        )}
 
+                          <div className={styles.readOnlyQuotationField}>
+                            <small>Valor</small>
+                            <strong className={styles.readOnlyQuotationValue}>{formatCurrency(cotizacion.ValorTotal)}</strong>
+                          </div>
+                        </div>
+
+                        <div className={styles.readOnlyQuotationFooter}>
+                          <span>Total</span>
+                          <strong>{formatCurrency(cotizacion.ValorTotal)}</strong>
+                        </div>
                       </div>
-
-                    )
-                  )}
-
+                    );
+                  })}
                 </div>
-
               )}
-
             </section>
 
             {(user?.role === 'Aprobador' || user?.role === 'Admin') &&
               selectedRequerimiento.Estado === 'Enviado Aprobacion' && (
-                <section className={styles.detailCard}>
-                  <span className={styles.eyebrow}>DECISIÓN DEL APROBADOR</span>
-                  <h3>Aprobar o rechazar requerimiento</h3>
-                  <p>
-                    Para aprobar, selecciona primero una de las cotizaciones mostradas arriba.
-                    Al confirmar la aprobación se generará automáticamente la orden correspondiente según el tipo de proceso.
-                    Al rechazar, debes ingresar un comentario.
-                  </p>
+                <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
+                  <div className={styles.compactDecisionHeading}>
+                    <div>
+                      <span className={styles.eyebrow}>DECISIÓN DEL APROBADOR</span>
+                      <h3>Aprobar o rechazar requerimiento</h3>
+                    </div>
+                    <span>Selecciona una cotización para aprobar. El comentario es obligatorio al rechazar.</span>
+                  </div>
                   <div className={styles.formGroup}>
                     <label className={styles.label}>Comentario (obligatorio al rechazar)</label>
                     <textarea
                       className={styles.textarea}
-                      rows={4}
+                      rows={2}
                       value={comentarioAprobador}
                       placeholder="Escribe una observación sobre la decisión..."
                       onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -1846,35 +1810,58 @@ Attachments: cotizacion.AttachmentFiles || []
                       }
                     />
                   </div>
-                  <div className={styles.actions}>
-                    <button type="button" className={styles.secondaryButton} disabled={procesandoDecision}
-                      onClick={() => { void decidirRequerimiento(false); }}>
-                      {procesandoDecision ? 'Procesando...' : 'Rechazar'}
-                    </button>
-                    <button type="button" className={styles.primaryButton} disabled={procesandoDecision}
-                      onClick={() => { void decidirRequerimiento(true); }}>
-                      {procesandoDecision ? 'Procesando...' : 'Aprobar cotización'}
-                    </button>
-                  </div>
                 </section>
               )}
 
+            <div className={`${styles.stickyActions} ${styles.compactStickyActions} ${styles.detailActionBar}`}>
+              <div className={styles.nextStepSummary}>
+                <small>Siguiente paso</small>
+                <strong>
+                  {selectedRequerimiento.Estado === 'Borrador'
+                    ? 'Completar solicitud'
+                    : `Seguimiento: ${getEtapaLabel(selectedRequerimiento.EtapaActual)}`}
+                </strong>
+              </div>
+
+              {(user?.role === 'Aprobador' || user?.role === 'Admin') &&
+                selectedRequerimiento.Estado === 'Enviado Aprobacion' && (
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      disabled={procesandoDecision}
+                      onClick={() => { void decidirRequerimiento(false); }}
+                    >
+                      {procesandoDecision ? 'Procesando...' : 'Rechazar'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.primaryButton}
+                      disabled={procesandoDecision}
+                      onClick={() => { void decidirRequerimiento(true); }}
+                    >
+                      {procesandoDecision ? 'Procesando...' : 'Aprobar cotización'}
+                    </button>
+                  </div>
+                )}
+            </div>
           </div>
         ) : (
           <div className={styles.requestsWorkspace}>
-            <div className={styles.pageIntro}>
-              <div>
-                <span className={styles.eyebrow}>CONTROL DE EXPEDIENTES</span>
-                <h2 className={styles.pageTitle}>{activeView === 'mis' ? 'Mis solicitudes' : 'Solicitudes'}</h2>
-                <p className={styles.pageDescription}>Consulta el avance, estado y etapa actual de cada requerimiento.</p>
+            <div className={styles.listHeaderBand}>
+              <div className={styles.pageIntro}>
+                <div>
+                  <span className={styles.eyebrow}>CONTROL DE EXPEDIENTES</span>
+                  <h2 className={styles.pageTitle}>{activeView === 'mis' ? 'Mis solicitudes' : 'Solicitudes'}</h2>
+                </div>
               </div>
-            </div>
 
-            <div className={styles.kpiGrid}>
-              <div className={styles.kpiCard}><span>Total</span><strong>{requerimientos.length}</strong><small>requerimientos</small></div>
-              <div className={styles.kpiCard}><span>En aprobación</span><strong>{requerimientos.filter(r => r.Estado === 'Enviado Aprobacion').length}</strong><small>pendientes</small></div>
-              <div className={styles.kpiCard}><span>Aprobados</span><strong>{requerimientos.filter(r => r.Estado === 'Aprobado').length}</strong><small>procesados</small></div>
-              <div className={styles.kpiCard}><span>Borradores</span><strong>{requerimientos.filter(r => r.Estado === 'Borrador').length}</strong><small>sin enviar</small></div>
+              <div className={styles.kpiGrid}>
+                <div className={styles.kpiCard}><span>Total</span><strong>{requerimientos.length}</strong></div>
+                <div className={styles.kpiCard}><span>En aprobación</span><strong>{requerimientos.filter(r => r.Estado === 'Enviado Aprobacion').length}</strong></div>
+                <div className={styles.kpiCard}><span>Aprobados</span><strong>{requerimientos.filter(r => r.Estado === 'Aprobado').length}</strong></div>
+                <div className={styles.kpiCard}><span>Borradores</span><strong>{requerimientos.filter(r => r.Estado === 'Borrador').length}</strong></div>
+              </div>
             </div>
 
             <div className={styles.tableToolbar}>
@@ -1892,24 +1879,41 @@ Attachments: cotizacion.AttachmentFiles || []
                 <div className={styles.emptyState}>No existen solicitudes para mostrar.</div>
               ) : (
                 <table className={styles.requestsTable}>
-                  <thead><tr><th>ID</th><th>Requerimiento</th><th>Categoría</th><th>Promedio cotizaciones</th><th>Etapa actual</th><th>Estado</th><th>Decisión</th><th>Fecha</th><th /></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Requerimiento</th>
+                      <th>Categoría</th>
+                      <th>Valor</th>
+                      <th>Seguimiento</th>
+                      <th>Fecha</th>
+                      <th />
+                    </tr>
+                  </thead>
                   <tbody>
                     {filteredRequerimientos.map((requerimiento: IRequerimientoItem) => (
                       <tr key={requerimiento.Id} className={styles.clickableRow} onClick={() => abrirRequerimiento(requerimiento)}>
                         <td><strong>#{requerimiento.Id}</strong></td>
-                        <td><div className={styles.requestTitle}>{requerimiento.Descripcion}</div><small>{requerimiento.Solicitante?.Title || 'Sin solicitante'}</small></td>
+                        <td>
+                          <div className={styles.requestTitle}>{requerimiento.Descripcion}</div>
+                          <small>{requerimiento.Solicitante?.Title || 'Sin solicitante'}</small>
+                        </td>
                         <td>{getCategoriaNombre(requerimiento.CategoriaId)}</td>
                         <td><strong>{formatCurrency(requerimiento.ValorTotal)}</strong></td>
-                        <td><span className={styles.stageBadge}>{getEtapaLabel(requerimiento.EtapaActual)}</span></td>
-                        <td><span className={getEstadoClass(requerimiento.Estado)}>{requerimiento.Estado}</span></td>
                         <td>
-                          {requerimiento.Estado === 'Aprobado' && requerimiento.DecisionPor
-                            ? `Aprobado por ${requerimiento.DecisionPor.Title}`
-                            : requerimiento.Estado === 'Rechazado' && requerimiento.DecisionPor
-                              ? `Rechazado por ${requerimiento.DecisionPor.Title}`
-                              : requerimiento.Estado === 'Enviado Aprobacion'
-                                ? 'Pendiente de decisión'
-                                : '—'}
+                          <div className={styles.tableStatusCell}>
+                            <span className={styles.stageBadge}>{getEtapaLabel(requerimiento.EtapaActual)}</span>
+                            <span className={getEstadoClass(requerimiento.Estado)}>{requerimiento.Estado}</span>
+                            <small className={styles.decisionText}>
+                              {requerimiento.Estado === 'Aprobado' && requerimiento.DecisionPor
+                                ? `Por ${requerimiento.DecisionPor.Title}`
+                                : requerimiento.Estado === 'Rechazado' && requerimiento.DecisionPor
+                                  ? `Por ${requerimiento.DecisionPor.Title}`
+                                  : requerimiento.Estado === 'Enviado Aprobacion'
+                                    ? 'Pendiente de decisión'
+                                    : 'Sin enviar'}
+                            </small>
+                          </div>
                         </td>
                         <td>
                           {new Date(
@@ -1918,7 +1922,11 @@ Attachments: cotizacion.AttachmentFiles || []
                               : requerimiento.Created
                           ).toLocaleDateString('es-EC')}
                         </td>
-                        <td><button type="button" className={styles.viewButton} onClick={(e) => { e.stopPropagation(); abrirRequerimiento(requerimiento); }}>Ver →</button></td>
+                        <td>
+                          <button type="button" className={styles.viewButton} onClick={(e) => { e.stopPropagation(); abrirRequerimiento(requerimiento); }}>
+                            Ver →
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1927,6 +1935,39 @@ Attachments: cotizacion.AttachmentFiles || []
             </div>
           </div>
         )
+      )}
+
+      {archivoPreview && (
+        <div
+          className={styles.pdfModalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Vista previa de ${archivoPreview.FileName}`}
+          onClick={() => setArchivoPreview(null)}
+        >
+          <div className={styles.pdfModalContent} onClick={(event) => event.stopPropagation()}>
+            <div className={styles.pdfModalHeader}>
+              <div>
+                <span className={styles.eyebrow}>VISTA PREVIA</span>
+                <strong>{archivoPreview.FileName}</strong>
+              </div>
+              <button
+                type="button"
+                className={styles.pdfModalClose}
+                aria-label="Cerrar vista previa"
+                title="Cerrar"
+                onClick={() => setArchivoPreview(null)}
+              >
+                ×
+              </button>
+            </div>
+            <iframe
+              title={archivoPreview.FileName}
+              src={getVistaPreviaArchivo(archivoPreview)}
+              className={styles.pdfPreviewFrame}
+            />
+          </div>
+        </div>
       )}
 
       {/* MENSAJES */}

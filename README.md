@@ -1,3 +1,14 @@
+## Versionado
+
+El proyecto utiliza versionado semántico `MAJOR.MINOR.PATCH`.
+
+- `npm run version:patch` → correcciones.
+- `npm run version:minor` → nuevas funcionalidades.
+- `npm run version:major` → cambios importantes.
+- `npm run build` → genera el paquete `.sppkg`.
+
+La versión de SPFx se sincroniza automáticamente con `package-solution.json`.
+
 # SPFx Requirements Management
 
 Aplicación desarrollada con **SharePoint Framework (SPFx)** y **React** para la gestión de requerimientos internos dentro de SharePoint.
