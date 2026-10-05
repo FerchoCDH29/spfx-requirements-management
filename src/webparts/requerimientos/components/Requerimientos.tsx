@@ -72,7 +72,15 @@ interface IRequerimientoItem {
   Created: string;
   EtapaActual?: string;
   FechaAprobacion?: string;
+  FechaEnvioAprobacion?: string;
+  FechaDecision?: string;
   ComentarioAprobador?: string;
+
+  Aprobador?: {
+    Id: number;
+    Title: string;
+    EMail?: string;
+  };
 
   DecisionPor?: {
     Id: number;
@@ -95,6 +103,22 @@ interface ICotizacionDetalle {
   ValorTotal: number;
   Seleccionada: boolean;
   Attachments: IAdjuntoCotizacion[];
+}
+
+interface IHistoryEvent {
+  key: string;
+  title: string;
+  date?: string;
+  actor?: string;
+  detail?: string;
+}
+
+interface IStageInspection {
+  title: string;
+  status: string;
+  date?: string;
+  actor?: string;
+  details: string[];
 }
 
 const Requerimientos: React.FC<IRequerimientosProps> = ({
@@ -152,6 +176,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
   const [searchTerm, setSearchTerm] =
     useState<string>('');
+
+  const [etapaConsulta, setEtapaConsulta] =
+    useState<string | null>(null);
 
   /*
    * ===========================
@@ -465,10 +492,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           `/_api/web/lists/getbytitle('Requerimientos')/items` +
           `?$select=` +
           `Id,Title,Descripcion,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
-          `Recurrente,Created,EtapaActual,FechaAprobacion,ComentarioAprobador,` +
+          `Recurrente,Created,EtapaActual,FechaAprobacion,FechaEnvioAprobacion,FechaDecision,ComentarioAprobador,` +
+          `Aprobador/Id,Aprobador/Title,Aprobador/EMail,` +
           `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
           `Solicitante/Id,Solicitante/Title,Solicitante/EMail` +
-          `&$expand=Solicitante,DecisionPor` +
+          `&$expand=Solicitante,DecisionPor,Aprobador` +
           `&$orderby=Created desc` +
           `&$top=500`;
 
@@ -606,10 +634,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       `/_api/web/lists/getbytitle('Requerimientos')/items(${requerimientoId})` +
       `?$select=` +
       `Id,Title,Descripcion,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
-      `Recurrente,Created,EtapaActual,FechaAprobacion,ComentarioAprobador,` +
+      `Recurrente,Created,EtapaActual,FechaAprobacion,FechaEnvioAprobacion,FechaDecision,ComentarioAprobador,` +
+      `Aprobador/Id,Aprobador/Title,Aprobador/EMail,` +
       `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
       `Solicitante/Id,Solicitante/Title,Solicitante/EMail` +
-      `&$expand=Solicitante,DecisionPor`;
+      `&$expand=Solicitante,DecisionPor,Aprobador`;
 
     const response = await context.spHttpClient.get(
       requerimientoUrl,
@@ -789,6 +818,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
               setSelectedRequerimiento(
                 requerimientoDirecto
               );
+              setEtapaConsulta(
+                requerimientoDirecto.EtapaActual || 'Solicitud'
+              );
 
               setComentarioAprobador('');
               setCotizacionSeleccionadaId(null);
@@ -879,6 +911,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
       setActiveView(view);
       setSelectedRequerimiento(null);
+      setEtapaConsulta(null);
       setMessage('');
 
       if (
@@ -897,6 +930,20 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       style: 'currency',
       currency: 'USD'
     });
+
+  const formatDateTime = (value?: string): string => {
+    if (!value) {
+      return 'Fecha no registrada';
+    }
+
+    return new Date(value).toLocaleString('es-EC', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   const getVistaPreviaArchivo = (archivo: IAdjuntoCotizacion): string =>
     new URL(archivo.ServerRelativeUrl, window.location.origin).href;
@@ -1139,7 +1186,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 : 'SolicitarOC'
             )
           : 'Aprobacion',
-        FechaAprobacion: new Date().toISOString(),
+        FechaDecision: new Date().toISOString(),
+        FechaAprobacion: aprobar ? new Date().toISOString() : null,
         ComentarioAprobador: comentarioAprobador.trim(),
         DecisionPorId: user.id,
         ...(aprobar && valorCotizacionAprobada !== undefined
@@ -1191,6 +1239,191 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     return `${styles.statusBadge} ${styles.statusPending}`;
   };
 
+  const getSelectedQuotation = (): ICotizacionDetalle | undefined =>
+    cotizacionesDetalle.find(
+      (cotizacion: ICotizacionDetalle) => cotizacion.Seleccionada
+    );
+
+  const getHistoryEvents = (
+    item: IRequerimientoItem
+  ): IHistoryEvent[] => {
+    const events: IHistoryEvent[] = [
+      {
+        key: 'created',
+        title: 'Solicitud creada',
+        date: item.Created,
+        actor: item.Solicitante?.Title || 'Solicitante',
+        detail: 'Se creó el requerimiento.'
+      }
+    ];
+
+    if (
+      item.Estado !== 'Borrador' ||
+      item.FechaEnvioAprobacion
+    ) {
+      events.push({
+        key: 'submitted',
+        title: 'Enviado a aprobación',
+        date: item.FechaEnvioAprobacion,
+        actor: item.Solicitante?.Title || 'Solicitante',
+        detail: item.Aprobador?.Title
+          ? `Asignado a ${item.Aprobador.Title}.`
+          : 'Enviado al aprobador correspondiente.'
+      });
+    }
+
+    if (
+      item.Estado === 'Aprobado' ||
+      item.Estado === 'Rechazado'
+    ) {
+      const selectedQuotation = getSelectedQuotation();
+      const decisionDetails: string[] = [];
+
+      if (
+        item.Estado === 'Aprobado' &&
+        selectedQuotation
+      ) {
+        decisionDetails.push(
+          `${selectedQuotation.CodigoCotizacionInterno || selectedQuotation.Title}: ${formatCurrency(selectedQuotation.ValorTotal)}`
+        );
+      }
+
+      if (item.ComentarioAprobador) {
+        decisionDetails.push(item.ComentarioAprobador);
+      }
+
+      events.push({
+        key: 'decision',
+        title:
+          item.Estado === 'Aprobado'
+            ? 'Requerimiento aprobado'
+            : 'Requerimiento rechazado',
+        date:
+          item.FechaDecision ||
+          item.FechaAprobacion,
+        actor:
+          item.DecisionPor?.Title ||
+          item.Aprobador?.Title ||
+          'Aprobador',
+        detail:
+          decisionDetails.join(' · ') ||
+          'Decisión registrada.'
+      });
+    }
+
+    return events;
+  };
+
+  const getStageInspection = (
+    item: IRequerimientoItem,
+    etapa: string
+  ): IStageInspection => {
+    const selectedQuotation = getSelectedQuotation();
+
+    if (etapa === 'Solicitud') {
+      return {
+        title: 'Solicitud',
+        status:
+          item.Estado === 'Borrador'
+            ? 'Borrador'
+            : 'Completada',
+        date: item.Created,
+        actor: item.Solicitante?.Title || 'Solicitante',
+        details: [
+          `Categoría: ${getCategoriaNombre(item.CategoriaId)}`,
+          `Tipo: ${item.Recurrente ? 'Recurrente' : 'No recurrente'}`,
+          `Valor promedio: ${formatCurrency(item.ValorPromedio ?? item.ValorTotal ?? 0)}`
+        ]
+      };
+    }
+
+    if (etapa === 'Aprobacion') {
+      const decisionMade =
+        item.Estado === 'Aprobado' ||
+        item.Estado === 'Rechazado';
+
+      const details: string[] = [
+        item.Aprobador?.Title
+          ? `Aprobador asignado: ${item.Aprobador.Title}`
+          : 'Aprobador asignado según categoría.'
+      ];
+
+      if (decisionMade && selectedQuotation && item.Estado === 'Aprobado') {
+        details.push(
+          `Cotización aprobada: ${selectedQuotation.CodigoCotizacionInterno || selectedQuotation.Title} · ${formatCurrency(selectedQuotation.ValorTotal)}`
+        );
+      }
+
+      if (item.ComentarioAprobador) {
+        details.push(`Comentario: ${item.ComentarioAprobador}`);
+      }
+
+      return {
+        title: 'Aprobación',
+        status: decisionMade
+          ? item.Estado
+          : item.Estado === 'Borrador'
+            ? 'No iniciada'
+            : 'Pendiente de decisión',
+        date: decisionMade
+          ? (item.FechaDecision || item.FechaAprobacion)
+          : item.FechaEnvioAprobacion,
+        actor: decisionMade
+          ? (item.DecisionPor?.Title || item.Aprobador?.Title)
+          : item.Aprobador?.Title,
+        details
+      };
+    }
+
+    if (etapa === 'GenerarOC' || etapa === 'SolicitarOC') {
+      return {
+        title: getEtapaLabel(etapa),
+        status:
+          item.EtapaActual === etapa
+            ? 'Etapa actual'
+            : 'Completada',
+        date:
+          item.FechaDecision ||
+          item.FechaAprobacion,
+        actor: 'Proceso operativo',
+        details: [
+          etapa === 'GenerarOC'
+            ? 'La solicitud fue aprobada y quedó lista para generar la orden de compra.'
+            : 'La solicitud fue aprobada y quedó lista para solicitar la orden de compra.',
+          'El detalle de la OC se mostrará aquí cuando implementemos esa etapa.'
+        ]
+      };
+    }
+
+    if (etapa === 'Facturacion') {
+      return {
+        title: 'Facturación',
+        status:
+          item.EtapaActual === 'Facturacion'
+            ? 'Etapa actual'
+            : item.EtapaActual === 'Finalizado'
+              ? 'Completada'
+              : 'No iniciada',
+        actor: 'Proceso operativo',
+        details: [
+          'En esta etapa se cargará el PDF de la factura asociada a la orden de compra.'
+        ]
+      };
+    }
+
+    return {
+      title: 'Finalizado',
+      status:
+        item.EtapaActual === 'Finalizado'
+          ? 'Completado'
+          : 'No iniciado',
+      actor: 'Proceso',
+      details: [
+        'El requerimiento queda cerrado cuando termina la facturación.'
+      ]
+    };
+  };
+
   const filteredRequerimientos = requerimientos.filter((item) => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return true;
@@ -1207,6 +1440,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   (requerimiento: IRequerimientoItem): void => {
 
     setSelectedRequerimiento(requerimiento);
+    setEtapaConsulta(requerimiento.EtapaActual || 'Solicitud');
     setComentarioAprobador('');
     setCotizacionSeleccionadaId(null);
     setArchivoPreview(null);
@@ -1620,6 +1854,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             AprobadorId: aprobadorId,
             ValorPromedio: valorPromedio,
             ValorTotal: null,
+            FechaEnvioAprobacion: new Date().toISOString(),
             EtapaActual: 'Aprobacion',
             Estado: 'Enviado Aprobacion'
           }
@@ -2180,8 +2415,12 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                       {selectedRequerimiento.Estado === 'Aprobado' ? 'Aprobado por' : 'Rechazado por'}
                     </strong>{' '}
                     {selectedRequerimiento.DecisionPor?.Title || 'Sin información'}
-                    {selectedRequerimiento.FechaAprobacion && (
-                      <> · {new Date(selectedRequerimiento.FechaAprobacion).toLocaleDateString('es-EC')}</>
+                    {(selectedRequerimiento.FechaDecision || selectedRequerimiento.FechaAprobacion) && (
+                      <> · {new Date(
+                        selectedRequerimiento.FechaDecision ||
+                        selectedRequerimiento.FechaAprobacion ||
+                        ''
+                      ).toLocaleDateString('es-EC')}</>
                     )}
                     {selectedRequerimiento.ComentarioAprobador && (
                       <> · {selectedRequerimiento.ComentarioAprobador}</>
@@ -2192,21 +2431,84 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
               <div className={styles.compactTimeline} aria-label="Etapas del proceso">
                 {getEtapas(selectedRequerimiento).map((etapa, index, etapas) => {
-                  const currentIndex = Math.max(0, etapas.indexOf(selectedRequerimiento.EtapaActual || 'Solicitud'));
-                  const completed = index < currentIndex || selectedRequerimiento.EtapaActual === 'Finalizado';
-                  const current = index === currentIndex && selectedRequerimiento.EtapaActual !== 'Finalizado';
+                  const currentIndex = Math.max(
+                    0,
+                    etapas.indexOf(
+                      selectedRequerimiento.EtapaActual || 'Solicitud'
+                    )
+                  );
+                  const completed =
+                    index < currentIndex ||
+                    selectedRequerimiento.EtapaActual === 'Finalizado';
+                  const current =
+                    index === currentIndex &&
+                    selectedRequerimiento.EtapaActual !== 'Finalizado';
+                  const consultable =
+                    index <= currentIndex ||
+                    selectedRequerimiento.EtapaActual === 'Finalizado';
+                  const selected =
+                    etapaConsulta === etapa;
+
                   return (
-                    <div
+                    <button
                       key={etapa}
-                      className={`${styles.compactTimelineStep} ${completed ? styles.timelineCompleted : ''} ${current ? styles.timelineCurrent : ''}`}
+                      type="button"
+                      className={`${styles.compactTimelineStep} ${styles.timelineStepButton} ${completed ? styles.timelineCompleted : ''} ${current ? styles.timelineCurrent : ''} ${selected ? styles.timelineSelected : ''}`}
                       aria-current={current ? 'step' : undefined}
+                      aria-pressed={selected}
+                      disabled={!consultable}
+                      onClick={() => {
+                        if (consultable) {
+                          setEtapaConsulta(etapa);
+                        }
+                      }}
                     >
-                      <div className={styles.compactTimelineMarker}>{completed ? '✓' : index + 1}</div>
+                      <div className={styles.compactTimelineMarker}>
+                        {completed ? '✓' : index + 1}
+                      </div>
                       <span>{getEtapaLabel(etapa)}</span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
+
+              {etapaConsulta && (() => {
+                const etapaData = getStageInspection(
+                  selectedRequerimiento,
+                  etapaConsulta
+                );
+
+                return (
+                  <div className={styles.stageInspection}>
+                    <div className={styles.stageInspectionHeader}>
+                      <div>
+                        <small>DETALLE DE ETAPA</small>
+                        <strong>{etapaData.title}</strong>
+                      </div>
+                      <span>{etapaData.status}</span>
+                    </div>
+
+                    <div className={styles.stageInspectionMeta}>
+                      {etapaData.date && (
+                        <span>{formatDateTime(etapaData.date)}</span>
+                      )}
+                      {etapaData.actor && (
+                        <span>{etapaData.actor}</span>
+                      )}
+                    </div>
+
+                    <div className={styles.stageInspectionDetails}>
+                      {etapaData.details.map(
+                        (detail: string, detailIndex: number) => (
+                          <div key={`${etapaData.title}-${detailIndex}`}>
+                            {detail}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </section>
 
             <section className={`${styles.formSection} ${styles.detailQuotationsSection}`}>
@@ -2352,6 +2654,49 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 </section>
               )}
 
+            <section className={`${styles.detailCard} ${styles.historyCard}`}>
+              <div className={styles.historyHeader}>
+                <div>
+                  <span className={styles.eyebrow}>TRAZABILIDAD</span>
+                  <h3>Historial del requerimiento</h3>
+                </div>
+                <small>Los eventos se acumulan conforme avanza el proceso.</small>
+              </div>
+
+              <div className={styles.historyList}>
+                {getHistoryEvents(selectedRequerimiento)
+                  .slice()
+                  .reverse()
+                  .map((event: IHistoryEvent) => (
+                    <div
+                      key={event.key}
+                      className={styles.historyItem}
+                    >
+                      <div className={styles.historyRail}>
+                        <span className={styles.historyDot} />
+                      </div>
+
+                      <div className={styles.historyContent}>
+                        <div className={styles.historyItemHeader}>
+                          <strong>{event.title}</strong>
+                          <span>
+                            {formatDateTime(event.date)}
+                          </span>
+                        </div>
+
+                        {event.actor && (
+                          <small>Por {event.actor}</small>
+                        )}
+
+                        {event.detail && (
+                          <p>{event.detail}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </section>
+
             <div className={`${styles.stickyActions} ${styles.compactStickyActions} ${styles.detailActionBar}`}>
               <div className={styles.nextStepSummary}>
                 <small>Siguiente paso</small>
@@ -2488,8 +2833,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                         </td>
                         <td>
                           {new Date(
-                            (requerimiento.Estado === 'Aprobado' || requerimiento.Estado === 'Rechazado') && requerimiento.FechaAprobacion
-                              ? requerimiento.FechaAprobacion
+                            (requerimiento.Estado === 'Aprobado' || requerimiento.Estado === 'Rechazado') &&
+                            (requerimiento.FechaDecision || requerimiento.FechaAprobacion)
+                              ? (requerimiento.FechaDecision || requerimiento.FechaAprobacion || requerimiento.Created)
                               : requerimiento.Created
                           ).toLocaleDateString('es-EC')}
                         </td>

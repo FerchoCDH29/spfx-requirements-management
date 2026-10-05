@@ -515,6 +515,170 @@
 .timelineCurrent { color: req.$blue; }
 .timelineCurrent .compactTimelineMarker { border-color: req.$blue; background: req.$blue; color: #fff; box-shadow: 0 0 0 2px rgba(11,93,155,.10); }
 
+.timelineStepButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.timelineStepButton:disabled {
+  cursor: default;
+  opacity: .55;
+}
+.timelineSelected .compactTimelineMarker {
+  box-shadow: 0 0 0 3px rgba(11,93,155,.14);
+}
+.timelineStepButton:focus-visible {
+  outline: 2px solid req.$blue;
+  outline-offset: 3px;
+  border-radius: 7px;
+}
+
+.stageInspection {
+  margin: 7px 0 9px;
+  padding: 8px 9px;
+  border: 1px solid req.$border-soft;
+  border-radius: 8px;
+  background: #fff;
+}
+.stageInspectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.stageInspectionHeader > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stageInspectionHeader small {
+  color: req.$subtle;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .35px;
+}
+.stageInspectionHeader strong {
+  margin-top: 1px;
+  color: req.$navy;
+  font-size: 11px;
+}
+.stageInspectionHeader > span {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #eef4f8;
+  color: req.$blue;
+  font-size: 8px;
+  font-weight: 800;
+}
+.stageInspectionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 5px;
+  color: req.$muted;
+  font-size: 9px;
+}
+.stageInspectionDetails {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+  color: #475569;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.historyCard {
+  padding: 10px;
+}
+.historyHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.historyHeader h3 {
+  margin: 1px 0 0;
+  color: req.$navy;
+  font-size: 12px;
+}
+.historyHeader > small {
+  max-width: 420px;
+  color: req.$muted;
+  font-size: 9px;
+  text-align: right;
+}
+.historyList {
+  display: grid;
+}
+.historyItem {
+  display: grid;
+  grid-template-columns: 18px minmax(0,1fr);
+  gap: 7px;
+  min-height: 48px;
+}
+.historyRail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.historyRail::after {
+  content: '';
+  position: absolute;
+  top: 14px;
+  bottom: -5px;
+  width: 2px;
+  background: #e4e9ef;
+}
+.historyItem:last-child .historyRail::after {
+  display: none;
+}
+.historyDot {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: req.$blue;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+.historyContent {
+  min-width: 0;
+  padding: 0 0 9px;
+}
+.historyItemHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.historyItemHeader strong {
+  color: #334155;
+  font-size: 10px;
+}
+.historyItemHeader span {
+  flex: 0 0 auto;
+  color: req.$subtle;
+  font-size: 8px;
+}
+.historyContent > small {
+  display: block;
+  margin-top: 1px;
+  color: req.$muted;
+  font-size: 8px;
+}
+.historyContent p {
+  margin: 3px 0 0;
+  color: #475569;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
 .detailQuotationsSection { padding: 9px 10px 10px; }
 .detailQuotationSkeleton { min-height: 126px; background: linear-gradient(90deg,#edf1f5 25%,#f8fafc 50%,#edf1f5 75%); background-size: 200% 100%; animation: reqSkeleton 1.2s linear infinite; }
 .approvalQuotationCard { min-height: 126px; display: flex; flex-direction: column; overflow: hidden; }
@@ -617,6 +781,10 @@
   .compactRequestGrid { grid-template-columns: 1fr; }
   .compactDescription { grid-column: auto; }
   .compactDescription .textarea { height: 52px; }
+  .historyHeader,
+  .stageInspectionHeader { align-items: flex-start; flex-direction: column; }
+  .historyHeader > small { text-align: left; }
+  .historyItemHeader { align-items: flex-start; flex-direction: column; gap: 1px; }
   .quotationList,
   .approvalQuotationGrid,
   .detailQuotationSkeletonGrid { grid-template-columns: 1fr; }
