@@ -1,8 +1,8 @@
 @use './Requerimientos.tokens' as req;
 
 /* ==========================================================================
-   GESTIÓN DE REQUERIMIENTOS — UI COMPACTA
-   Una sola capa visual. Evita redefiniciones acumuladas y prioriza densidad.
+   GESTIÓN DE REQUERIMIENTOS — UI ADAPTATIVA
+   Densidad configurable: compacta, cómoda y grande.
    ========================================================================== */
 
 .requerimientos {
@@ -730,7 +730,136 @@
 .skeletonTabs { width: 220px; height: 32px; }
 .skeletonPanel { height: 220px; }
 
-.success { position: fixed; right: 18px; bottom: 18px; z-index: 10000; max-width: min(420px,calc(100vw - 36px)); padding: 9px 12px; box-sizing: border-box; border: 1px solid #d7ecd9; border-radius: 8px; background: #f1faf1; color: #28752c; box-shadow: 0 10px 30px rgba(15,35,65,.15); font-size: 10px; }
+/* ===== Toasts / notificaciones ===== */
+.toastContainer {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 10050;
+  width: min(390px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 9px;
+  width: 100%;
+  padding: 11px 10px 11px 11px;
+  box-sizing: border-box;
+  border: 1px solid req.$border;
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: req.$surface;
+  box-shadow: 0 14px 38px rgba(15, 35, 65, .18);
+  pointer-events: auto;
+  animation: toastEnter 180ms ease-out both;
+}
+
+.toastIcon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.toastContent {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 1px;
+}
+
+.toastContent strong {
+  color: req.$navy;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.toastContent span {
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.toastClose {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: req.$muted;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background req.$motion, color req.$motion;
+}
+
+.toastClose:hover {
+  background: #f1f5f9;
+  color: req.$navy;
+}
+
+.toastSuccess {
+  border-color: #cfe6d2;
+  border-left-color: req.$green;
+  background: #fbfefb;
+}
+.toastSuccess .toastIcon {
+  background: #edf7e7;
+  color: #4f7f1f;
+}
+
+.toastError {
+  border-color: #f1c8c4;
+  border-left-color: req.$danger;
+  background: #fffafa;
+}
+.toastError .toastIcon {
+  background: #fdeceb;
+  color: req.$danger;
+}
+
+.toastWarning {
+  border-color: #f2ddb0;
+  border-left-color: #b7791f;
+  background: #fffdf8;
+}
+.toastWarning .toastIcon {
+  background: #fff4d8;
+  color: #9a6700;
+}
+
+.toastInfo {
+  border-color: #c9dff0;
+  border-left-color: req.$blue;
+  background: #fbfdff;
+}
+.toastInfo .toastIcon {
+  background: #eaf4fb;
+  color: req.$blue;
+}
+
+@keyframes toastEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(16px, -6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
 
 @keyframes reqSkeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
@@ -745,7 +874,8 @@
 .quotationDeleteButton:focus-visible,
 .pdfFileRemove:focus-visible,
 .previewIconButton:focus-visible,
-.pdfModalClose:focus-visible {
+.pdfModalClose:focus-visible,
+.toastClose:focus-visible {
   outline: 2px solid req.$blue;
   outline-offset: 2px;
 }
@@ -1042,6 +1172,17 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
+
+  .toastContainer {
+    top: 10px;
+    right: 10px;
+    width: calc(100vw - 20px);
+  }
+
+  .toast {
+    grid-template-columns: 30px minmax(0, 1fr) 28px;
+    padding: 10px 9px 10px 10px;
+  }
 }
 
 @media (max-width: 500px) {
@@ -1068,3 +1209,768 @@
     flex: 0 0 auto;
   }
 }
+
+/* ==========================================================================
+   LEGIBILIDAD Y TAMAÑO DE INTERFAZ
+   Cómodo es el valor predeterminado. El usuario puede elegir A− / A / A+.
+   ========================================================================== */
+
+.requerimientos {
+  --ui-font-micro: 11px;
+  --ui-font-xs: 12px;
+  --ui-font-sm: 14px;
+  --ui-font-base: 15px;
+  --ui-font-heading: 16px;
+  --ui-page-title: 21px;
+  --ui-app-title: 23px;
+  --ui-field-height: 42px;
+  --ui-button-height: 40px;
+  --ui-card-pad: 16px;
+  --ui-gap: 12px;
+  --ui-page-width: 1520px;
+  --ui-page-pad-x: 26px;
+  --ui-page-pad-y: 18px;
+  --ui-topbar-height: 64px;
+
+  max-width: var(--ui-page-width);
+  padding: var(--ui-page-pad-y) var(--ui-page-pad-x) 32px;
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: var(--ui-font-base);
+  line-height: 1.5;
+}
+
+.uiCompact {
+  --ui-font-micro: 9px;
+  --ui-font-xs: 10px;
+  --ui-font-sm: 12px;
+  --ui-font-base: 13px;
+  --ui-font-heading: 14px;
+  --ui-page-title: 17px;
+  --ui-app-title: 20px;
+  --ui-field-height: 34px;
+  --ui-button-height: 32px;
+  --ui-card-pad: 12px;
+  --ui-gap: 9px;
+  --ui-page-width: 1380px;
+  --ui-page-pad-x: 22px;
+  --ui-page-pad-y: 14px;
+  --ui-topbar-height: 54px;
+}
+
+.uiComfortable {
+  --ui-page-width: 1520px;
+}
+
+.uiLarge {
+  --ui-font-micro: 12px;
+  --ui-font-xs: 13px;
+  --ui-font-sm: 16px;
+  --ui-font-base: 17px;
+  --ui-font-heading: 18px;
+  --ui-page-title: 24px;
+  --ui-app-title: 27px;
+  --ui-field-height: 48px;
+  --ui-button-height: 46px;
+  --ui-card-pad: 20px;
+  --ui-gap: 16px;
+  --ui-page-width: 1600px;
+  --ui-page-pad-x: 30px;
+  --ui-page-pad-y: 22px;
+  --ui-topbar-height: 72px;
+}
+
+/* Selector A− / A / A+ */
+.uiSizeControl {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #dfe5eb;
+  border-radius: 9px;
+  background: #f4f7f9;
+}
+
+.uiSizeLabel {
+  padding: 0 5px 0 4px;
+  color: req.$muted;
+  font-size: var(--ui-font-micro);
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.uiSizeButton {
+  min-width: 31px;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #526170;
+  font: inherit;
+  font-size: var(--ui-font-xs);
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color req.$motion, border-color req.$motion, color req.$motion, box-shadow req.$motion;
+}
+
+.uiSizeButton:hover {
+  background: rgba(255,255,255,.85);
+  color: req.$navy;
+}
+
+.uiSizeButtonActive {
+  border-color: #d6e0e8;
+  background: #fff;
+  color: req.$blue;
+  box-shadow: 0 1px 4px rgba(15,35,65,.08);
+}
+
+.uiSizeButton:focus-visible {
+  outline: 2px solid req.$blue;
+  outline-offset: 2px;
+}
+
+/* Cabecera */
+.topBar {
+  min-height: var(--ui-topbar-height);
+  padding: 10px 16px;
+  gap: 24px;
+}
+
+.title {
+  font-size: var(--ui-app-title);
+}
+
+.eyebrow,
+.quotationLabel {
+  font-size: var(--ui-font-micro);
+}
+
+.headerUser {
+  gap: 12px;
+}
+
+.headerUserText strong {
+  font-size: var(--ui-font-sm);
+}
+
+.headerUserText span,
+.pageDescription {
+  font-size: var(--ui-font-xs);
+}
+
+.avatarSmall {
+  width: 36px;
+  height: 36px;
+}
+
+/* Navegación y jerarquía */
+.tabs {
+  gap: 4px;
+  margin-bottom: var(--ui-gap);
+  padding: 4px;
+}
+
+.tabButton {
+  min-height: var(--ui-button-height);
+  padding: 7px 14px;
+  font-size: var(--ui-font-sm);
+}
+
+.formWorkspace,
+.requestsWorkspace,
+.detailWorkspace {
+  gap: var(--ui-gap);
+}
+
+.compactFormIntro {
+  min-height: 30px;
+}
+
+.pageTitle {
+  font-size: var(--ui-page-title);
+}
+
+.detailTitleRow .pageTitle {
+  font-size: var(--ui-page-title);
+}
+
+/* Formularios */
+.formSection,
+.detailCard {
+  padding: var(--ui-card-pad);
+}
+
+.compactRequestSection,
+.compactDecisionCard,
+.historyCard,
+.detailQuotationsSection {
+  padding: var(--ui-card-pad);
+}
+
+.compactRequestGrid {
+  gap: var(--ui-gap);
+}
+
+.label {
+  margin-bottom: 6px;
+  font-size: var(--ui-font-xs);
+}
+
+.input,
+.select,
+.textarea {
+  font-size: var(--ui-font-sm);
+}
+
+.input,
+.select,
+.compactProcessOption,
+.fileUpload,
+.pdfFileChip {
+  height: var(--ui-field-height);
+}
+
+.input,
+.select {
+  padding: 8px 11px;
+}
+
+.textarea {
+  min-height: calc(var(--ui-field-height) + 16px);
+  max-height: 132px;
+  padding: 9px 11px;
+  line-height: 1.45;
+}
+
+.compactDescription .textarea {
+  min-height: var(--ui-field-height);
+  height: var(--ui-field-height);
+  max-height: 96px;
+}
+
+.compactProcessOptions {
+  gap: 8px;
+}
+
+.compactProcessOption {
+  padding: 6px 10px;
+  gap: 9px;
+}
+
+.compactProcessOption strong {
+  font-size: var(--ui-font-sm);
+}
+
+.compactProcessOption small {
+  font-size: var(--ui-font-micro);
+}
+
+.toggleDot {
+  flex-basis: 10px;
+  width: 10px;
+  height: 10px;
+}
+
+.compactQuotationHeader {
+  margin-bottom: 11px;
+}
+
+.compactQuotationHeader h3,
+.historyHeader h3,
+.compactDecisionHeading h3 {
+  font-size: var(--ui-font-heading);
+}
+
+.counterBadge {
+  font-size: var(--ui-font-micro);
+}
+
+.quotationList,
+.approvalQuotationGrid,
+.detailQuotationSkeletonGrid {
+  gap: var(--ui-gap);
+}
+
+.quotationHeader,
+.readOnlyQuotationHeader {
+  min-height: 40px;
+  padding: 7px 10px 7px 12px;
+}
+
+.quotationBody,
+.readOnlyQuotationBody {
+  gap: 10px;
+  padding: 11px 12px;
+}
+
+.fileUploadText,
+.pdfFileName {
+  font-size: var(--ui-font-xs);
+}
+
+.fileUploadIcon {
+  font-size: var(--ui-font-sm);
+}
+
+.pdfFileIcon {
+  font-size: var(--ui-font-micro);
+}
+
+.moneyInput > span {
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--ui-font-xs);
+}
+
+.readOnlyQuotationFooter span {
+  font-size: var(--ui-font-micro);
+}
+
+.readOnlyQuotationFooter strong,
+.readOnlyQuotationValue {
+  font-size: var(--ui-font-sm);
+}
+
+.addQuotationTile strong {
+  font-size: var(--ui-font-sm);
+}
+
+.addQuotationTile small {
+  font-size: var(--ui-font-micro);
+}
+
+/* Botones y barra de acciones */
+.primaryButton,
+.secondaryButton {
+  min-height: var(--ui-button-height);
+  padding: 8px 15px;
+  font-size: var(--ui-font-sm);
+}
+
+.stickyActions {
+  min-height: calc(var(--ui-button-height) + 18px);
+  padding: 9px 12px;
+}
+
+.compactStickyActions {
+  min-height: calc(var(--ui-button-height) + 14px);
+}
+
+.actions {
+  gap: 9px;
+}
+
+/* Listados */
+.listHeaderBand {
+  min-height: 68px;
+  gap: 18px;
+  padding: 11px 14px;
+}
+
+.kpiGrid {
+  gap: 8px;
+}
+
+.kpiCard {
+  min-width: 112px;
+  height: 46px;
+  padding: 6px 10px;
+}
+
+.kpiCard span {
+  font-size: var(--ui-font-micro);
+}
+
+.kpiCard strong {
+  font-size: var(--ui-page-title);
+}
+
+.tableToolbar {
+  gap: 12px;
+}
+
+.searchBox {
+  height: var(--ui-field-height);
+  padding: 0 11px;
+}
+
+.searchBox input {
+  font-size: var(--ui-font-sm);
+}
+
+.resultCount {
+  font-size: var(--ui-font-xs);
+}
+
+.requestsTable th,
+.requestsTable td {
+  padding: 11px 12px;
+}
+
+.requestsTable th {
+  font-size: var(--ui-font-micro);
+}
+
+.requestsTable td {
+  font-size: var(--ui-font-sm);
+  line-height: 1.4;
+}
+
+.requestsTable td small {
+  margin-top: 3px;
+  font-size: var(--ui-font-micro);
+}
+
+.stageBadge,
+.statusBadge {
+  padding: 4px 8px;
+  font-size: var(--ui-font-micro);
+}
+
+.viewButton,
+.backButton {
+  min-height: var(--ui-button-height);
+  padding: 6px 10px;
+  font-size: var(--ui-font-xs);
+}
+
+/* Expediente */
+.detailTopBar {
+  min-height: 42px;
+  gap: 12px;
+}
+
+.roleAccentBadge {
+  padding: 4px 8px;
+  font-size: var(--ui-font-micro);
+}
+
+.unifiedRequestCard {
+  padding: var(--ui-card-pad);
+  overflow: hidden;
+}
+
+.readOnlyFieldsGrid {
+  gap: 9px;
+}
+
+.readOnlyField {
+  min-height: 48px;
+  padding: 7px 9px;
+}
+
+.readOnlyField small,
+.compactDescriptionReadOnly small,
+.detailMetaRow small,
+.compactDecisionInfo small,
+.readOnlyQuotationField > small,
+.nextStepSummary small {
+  font-size: var(--ui-font-micro);
+}
+
+.readOnlyField strong {
+  margin-top: 2px;
+  font-size: var(--ui-font-sm);
+}
+
+.compactDescriptionReadOnly {
+  margin-top: 9px;
+  padding: 8px 9px;
+}
+
+.compactDescriptionReadOnly p {
+  margin-top: 3px;
+  font-size: var(--ui-font-sm);
+  line-height: 1.45;
+}
+
+.detailMetaRow {
+  gap: 16px;
+  margin-top: 9px;
+}
+
+.compactDecisionInfo {
+  margin-top: 9px;
+  padding: 8px 10px;
+  gap: 8px;
+  font-size: var(--ui-font-xs);
+  line-height: 1.4;
+}
+
+.compactTimeline {
+  margin-top: 11px;
+  padding: 10px 12px 8px;
+}
+
+.compactTimelineStep {
+  gap: 5px;
+  font-size: var(--ui-font-xs);
+}
+
+.compactTimelineMarker {
+  flex-basis: 24px;
+  width: 24px;
+  height: 24px;
+  font-size: var(--ui-font-micro);
+}
+
+.compactTimelineStep::before {
+  top: 12px;
+}
+
+.stageInspection {
+  margin: 10px 0 12px;
+  padding: 11px 12px;
+}
+
+.stageInspectionHeader small,
+.stageInspectionHeader > span {
+  font-size: var(--ui-font-micro);
+}
+
+.stageInspectionHeader strong {
+  font-size: var(--ui-font-heading);
+}
+
+.stageInspectionMeta,
+.stageInspectionDetails {
+  font-size: var(--ui-font-xs);
+  line-height: 1.45;
+}
+
+.historyHeader {
+  margin-bottom: 11px;
+}
+
+.historyHeader > small {
+  font-size: var(--ui-font-xs);
+}
+
+.historyItem {
+  grid-template-columns: 22px minmax(0,1fr);
+  gap: 9px;
+  min-height: 58px;
+}
+
+.historyDot {
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+}
+
+.historyContent {
+  padding-bottom: 12px;
+}
+
+.historyItemHeader strong {
+  font-size: var(--ui-font-sm);
+}
+
+.historyItemHeader span,
+.historyContent > small {
+  font-size: var(--ui-font-micro);
+}
+
+.historyContent p {
+  margin-top: 4px;
+  font-size: var(--ui-font-xs);
+  line-height: 1.45;
+}
+
+.readOnlyQuotationHeaderMeta small,
+.noFileText {
+  font-size: var(--ui-font-micro);
+}
+
+.readOnlyPdfChip {
+  min-height: var(--ui-field-height);
+  height: auto;
+  padding: 5px 5px 5px 8px;
+}
+
+.readOnlyPdfChip .previewIconButton,
+.previewIconButton {
+  min-height: 32px;
+  height: 32px;
+  font-size: var(--ui-font-xs);
+}
+
+.compactDecisionHeading {
+  margin-bottom: 9px;
+}
+
+.compactDecisionHeading > span,
+.nextStepSummary strong {
+  font-size: var(--ui-font-xs);
+}
+
+/* Modal y notificaciones */
+.pdfModalHeader {
+  min-height: 56px;
+  padding: 10px 14px;
+}
+
+.pdfModalHeader strong {
+  font-size: var(--ui-font-sm);
+}
+
+.toast {
+  grid-template-columns: 36px minmax(0, 1fr) 30px;
+  gap: 10px;
+  padding: 13px 12px 13px 13px;
+}
+
+.toastContent strong {
+  font-size: var(--ui-font-sm);
+}
+
+.toastContent span {
+  font-size: var(--ui-font-xs);
+}
+
+/* Tarjetas móviles */
+.mobileRequestIdBlock strong {
+  font-size: var(--ui-font-heading);
+}
+
+.mobileRequestIdBlock span,
+.mobileRequestMeta small,
+.mobileRequestStage small {
+  font-size: var(--ui-font-micro);
+}
+
+.mobileRequestDescription,
+.mobileRequestMeta strong {
+  font-size: var(--ui-font-sm);
+}
+
+.mobileRequestOpen {
+  font-size: var(--ui-font-xs);
+}
+
+/* En compacto recuperamos la densidad anterior sin perder el selector. */
+.uiCompact .formSection,
+.uiCompact .detailCard {
+  padding: 12px;
+}
+
+.uiCompact .readOnlyField {
+  min-height: 36px;
+  padding: 4px 7px;
+}
+
+.uiCompact .requestsTable th,
+.uiCompact .requestsTable td {
+  padding: 8px 10px;
+}
+
+.uiCompact .kpiCard {
+  height: 36px;
+  min-width: 94px;
+}
+
+.uiCompact .listHeaderBand {
+  min-height: 54px;
+  padding: 8px 10px 8px 12px;
+}
+
+/* En grande evitamos líneas demasiado extensas y damos más aire. */
+.uiLarge .compactRequestGrid {
+  gap: 16px;
+}
+
+.uiLarge .readOnlyFieldsGrid {
+  gap: 12px;
+}
+
+.uiLarge .requestsTable th,
+.uiLarge .requestsTable td {
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+
+@media (max-width: 900px) {
+  .requerimientos,
+  .uiCompact,
+  .uiComfortable,
+  .uiLarge {
+    --ui-page-pad-x: 14px;
+    --ui-page-pad-y: 12px;
+  }
+
+  .topBar {
+    gap: 12px;
+  }
+
+  .uiSizeLabel {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .requerimientos {
+    padding: 10px;
+  }
+
+  .topBar {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .brand {
+    flex: 1 1 auto;
+  }
+
+  .headerUser {
+    gap: 7px;
+  }
+
+  .uiSizeControl {
+    order: -1;
+  }
+
+  .uiSizeButton {
+    min-width: 34px;
+    height: 34px;
+  }
+
+  .title {
+    font-size: var(--ui-page-title);
+  }
+
+  .readOnlyFieldsGrid {
+    gap: 8px;
+  }
+
+  .compactTimelineStep > span {
+    font-size: var(--ui-font-micro);
+  }
+}
+
+@media (max-width: 500px) {
+  .topBar {
+    gap: 8px;
+  }
+
+  .brand {
+    width: 100%;
+  }
+
+  .headerUser {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .uiSizeControl {
+    margin-right: auto;
+  }
+
+  .compactProcessOption {
+    min-height: var(--ui-field-height);
+    height: auto;
+  }
+}
+

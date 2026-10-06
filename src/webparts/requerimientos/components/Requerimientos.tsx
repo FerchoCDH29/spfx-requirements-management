@@ -25,6 +25,77 @@ type AppView =
   | 'todas'
   | 'ordenes';
 
+type ToastType = 'success' | 'error' | 'warning' | 'info';
+type UiSize = 'compact' | 'comfortable' | 'large';
+
+const UI_SIZE_STORAGE_KEY = 'gestion-requerimientos-ui-size';
+
+const getStoredUiSize = (): UiSize => {
+  if (typeof window === 'undefined') {
+    return 'comfortable';
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(UI_SIZE_STORAGE_KEY);
+
+    if (
+      storedValue === 'compact' ||
+      storedValue === 'comfortable' ||
+      storedValue === 'large'
+    ) {
+      return storedValue;
+    }
+  } catch (error) {
+    console.warn('No se pudo leer la preferencia de tamaño de interfaz.', error);
+  }
+
+  return 'comfortable';
+};
+
+const getToastType = (message: string): ToastType => {
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.indexOf('no se pudo') >= 0 ||
+    normalized.indexOf('no tienes') >= 0 ||
+    normalized.indexOf('no existe') >= 0 ||
+    normalized.indexOf('no tiene') >= 0 ||
+    normalized.indexOf('no se encontró') >= 0 ||
+    normalized.indexOf('error') >= 0 ||
+    normalized.indexOf('inválid') >= 0 ||
+    normalized.indexOf('otro responsable') >= 0 ||
+    normalized.indexOf('ocurrió') >= 0
+  ) {
+    return 'error';
+  }
+
+  if (
+    normalized.indexOf('adjunte') >= 0 ||
+    normalized.indexOf('seleccione') >= 0 ||
+    normalized.indexOf('ingrese') >= 0 ||
+    normalized.indexOf('pendiente') >= 0 ||
+    normalized.indexOf('debe ') >= 0 ||
+    normalized.indexOf('ya fue') >= 0 ||
+    normalized.indexOf('ya no') >= 0
+  ) {
+    return 'warning';
+  }
+
+  if (
+    normalized.indexOf('correctamente') >= 0 ||
+    normalized.indexOf('aprobado.') >= 0 ||
+    normalized.indexOf('actualizado correctamente') >= 0 ||
+    normalized.indexOf('guardado como borrador') >= 0 ||
+    normalized.indexOf('registrada correctamente') >= 0 ||
+    normalized.indexOf('registrado correctamente') >= 0 ||
+    normalized.indexOf('finalizado') >= 0
+  ) {
+    return 'success';
+  }
+
+  return 'info';
+};
+
 interface IUser {
   id: number;
   displayName: string;
@@ -170,6 +241,19 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   const [user, setUser] =
     useState<IUser | null>(null);
 
+  const [uiSize, setUiSize] =
+    useState<UiSize>(getStoredUiSize);
+
+  const changeUiSize = (size: UiSize): void => {
+    setUiSize(size);
+
+    try {
+      window.localStorage.setItem(UI_SIZE_STORAGE_KEY, size);
+    } catch (error) {
+      console.warn('No se pudo guardar la preferencia de tamaño de interfaz.', error);
+    }
+  };
+
   const [categories, setCategories] =
     useState<ICategory[]>([]);
 
@@ -217,8 +301,32 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   const [saving, setSaving] =
     useState<boolean>(false);
 
-  const [message, setMessage] =
+  const [message, setMessageState] =
     useState<string>('');
+
+  const messageTimerRef =
+    React.useRef<number | undefined>(undefined);
+
+  const setMessage = (value: string): void => {
+    if (messageTimerRef.current !== undefined) {
+      window.clearTimeout(messageTimerRef.current);
+      messageTimerRef.current = undefined;
+    }
+
+    setMessageState(value);
+
+    if (!value) {
+      return;
+    }
+
+    const toastType = getToastType(value);
+    const duration = toastType === 'error' ? 7000 : 5000;
+
+    messageTimerRef.current = window.setTimeout(() => {
+      setMessageState('');
+      messageTimerRef.current = undefined;
+    }, duration);
+  };
 
   const [selectedRequerimiento, setSelectedRequerimiento] =
     useState<IRequerimientoItem | null>(null);
@@ -1095,6 +1203,14 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
   }, [context]);
 
+  useEffect(() => {
+    return () => {
+      if (messageTimerRef.current !== undefined) {
+        window.clearTimeout(messageTimerRef.current);
+      }
+    };
+  }, []);
+
   /*
    * ===========================
    * CAMBIAR DE VISTA
@@ -1477,8 +1593,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         });
 
         const mensajeConfirmacion = requerimientoActual.Recurrente
-          ? 'Al aprobar este requerimiento se generará automáticamente la orden de compra asociada a un Contrato con la cotización seleccionada. ¿Deseas continuar?'
-          : 'Al aprobar este requerimiento se generará automáticamente la solicitud de orden de compra (OCV) con la cotización seleccionada. ¿Deseas continuar?';
+          ? 'Se aprobará el requerimiento y se generará la OC del Contrato. ¿Continuar?'
+          : 'Se aprobará el requerimiento y la OC quedará pendiente de gestión en ERP. ¿Continuar?';
 
         if (!window.confirm(mensajeConfirmacion)) {
           return;
@@ -1549,8 +1665,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       setMessage(
         aprobar
           ? requerimientoActual.Recurrente
-            ? `Requerimiento #${requerimientoId} aprobado. La orden de compra se generó automáticamente y el proceso pasó a Facturación.`
-            : `Requerimiento #${requerimientoId} aprobado. La solicitud de orden de compra quedó pendiente de gestión en ERP.`
+            ? `Requerimiento #${requerimientoId} aprobado. OC generada; continúa en Facturación.`
+            : `Requerimiento #${requerimientoId} aprobado. OC pendiente de gestión en ERP.`
           : `Requerimiento #${requerimientoId} rechazado correctamente.`
       );
     } catch (error) {
@@ -1601,7 +1717,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         title: 'Solicitud creada',
         date: item.Created,
         actor: item.Solicitante?.Title || 'Solicitante',
-        detail: 'Se creó el requerimiento.'
+        detail: undefined
       }
     ];
 
@@ -1817,15 +1933,13 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             item.FechaAprobacion,
           actor: 'Proceso operativo',
           details: [
-            'Todavía no existe una orden de compra asociada a este requerimiento.'
+            'Orden de compra aún no registrada.'
           ]
         };
       }
 
       if (orden.TipoOrden === 'GenerarOC') {
-        const details: string[] = [
-          'La orden de compra fue generada automáticamente al aprobar el requerimiento.'
-        ];
+        const details: string[] = [];
 
         if (orden.NumeroOC) {
           details.push(`Número OC: ${orden.NumeroOC}`);
@@ -1857,13 +1971,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
       if (orden.EstadoOC === 'Generada' && orden.NumeroOC) {
         details.push(`Número OC: ${orden.NumeroOC}`);
-        details.push(
-          'La orden emitida por el ERP fue registrada correctamente.'
-        );
+        details.push('Registrada en ERP.');
       } else {
-        details.push(
-          'La orden debe gestionarse en el ERP y luego registrar aquí el número generado.'
-        );
+        details.push('Pendiente de registrar el número emitido por el ERP.');
       }
 
       details.push(`Responsable: ${responsable}`);
@@ -1896,15 +2006,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       const facturaAdjunta = ordenCompraDetalle?.AttachmentFiles?.[0];
 
       const details: string[] = facturaAdjunta
-        ? [
-            `Factura PDF: ${facturaAdjunta.FileName}`,
-            item.EtapaActual === 'Finalizado'
-              ? 'La factura fue cargada y el requerimiento quedó finalizado.'
-              : 'La factura ya está cargada. Falta completar la finalización del requerimiento.'
-          ]
-        : [
-            'Pendiente de cargar el PDF de la factura asociada a la orden de compra.'
-          ];
+        ? [`Factura PDF: ${facturaAdjunta.FileName}`]
+        : ['Pendiente de factura PDF.'];
 
       return {
         title: 'Facturación',
@@ -1938,8 +2041,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       actor: 'Proceso',
       details: [
         ordenCompraDetalle?.AttachmentFiles?.length
-          ? 'El requerimiento fue cerrado después de cargar el PDF de la factura.'
-          : 'El requerimiento queda cerrado cuando termina la facturación.'
+          ? 'Factura registrada. Proceso cerrado.'
+          : 'Pendiente de completar Facturación.'
       ]
     };
   };
@@ -2123,7 +2226,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       }
 
       setMessage(
-        `Orden ${numeroOC} registrada correctamente. El requerimiento pasó a Facturación.`
+        `OC ${numeroOC} registrada. El proceso pasó a Facturación.`
       );
     } catch (error) {
       setMessage(getErrorMessage(error));
@@ -2254,7 +2357,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       await loadOrdenesCompra(user.id);
 
       setMessage(
-        'Factura registrada correctamente. El requerimiento quedó finalizado.'
+        'Factura registrada. Requerimiento finalizado.'
       );
     } catch (error) {
       setMessage(getErrorMessage(error));
@@ -2703,9 +2806,16 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
    * ===========================
    */
 
+  const uiSizeClass =
+    uiSize === 'compact'
+      ? styles.uiCompact
+      : uiSize === 'large'
+        ? styles.uiLarge
+        : styles.uiComfortable;
+
   if (loading) {
     return (
-      <div className={styles.requerimientos} aria-busy="true" aria-label="Cargando información">
+      <div className={`${styles.requerimientos} ${uiSizeClass}`} aria-busy="true" aria-label="Cargando información">
         <div className={styles.loadingSkeleton}>
           <div className={styles.skeletonTop} />
           <div className={styles.skeletonTitle} />
@@ -2718,9 +2828,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
   return (
 
-    <div className={styles.requerimientos}>
+    <div className={`${styles.requerimientos} ${uiSizeClass}`}>
 
-      {/* CABECERA COMPACTA */}
+      {/* CABECERA */}
 
       <div className={styles.topBar}>
         <div className={styles.brand}>
@@ -2736,6 +2846,41 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         </div>
 
         <div className={styles.headerUser}>
+          <div
+            className={styles.uiSizeControl}
+            role="group"
+            aria-label="Tamaño de la interfaz"
+          >
+            <span className={styles.uiSizeLabel}>Tamaño</span>
+            <button
+              type="button"
+              className={`${styles.uiSizeButton} ${uiSize === 'compact' ? styles.uiSizeButtonActive : ''}`}
+              aria-pressed={uiSize === 'compact'}
+              title="Vista compacta"
+              onClick={() => changeUiSize('compact')}
+            >
+              A−
+            </button>
+            <button
+              type="button"
+              className={`${styles.uiSizeButton} ${uiSize === 'comfortable' ? styles.uiSizeButtonActive : ''}`}
+              aria-pressed={uiSize === 'comfortable'}
+              title="Vista cómoda"
+              onClick={() => changeUiSize('comfortable')}
+            >
+              A
+            </button>
+            <button
+              type="button"
+              className={`${styles.uiSizeButton} ${uiSize === 'large' ? styles.uiSizeButtonActive : ''}`}
+              aria-pressed={uiSize === 'large'}
+              title="Vista grande"
+              onClick={() => changeUiSize('large')}
+            >
+              A+
+            </button>
+          </div>
+
           {user && (
             <>
               <div className={styles.headerUserText}>
@@ -3472,25 +3617,21 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 <div className={styles.compactDecisionInfo}>
                   <small>GENERACIÓN AUTOMÁTICA</small>
                   <span>
-                    Esta orden fue generada automáticamente al aprobar el requerimiento.
-                    {' '}El formato actual del número es provisional hasta que negocio confirme
-                    la estructura definitiva.
+                    OC generada automáticamente.
                   </span>
                 </div>
               ) : selectedOrdenCompra.EstadoOC === 'Generada' ? (
                 <div className={styles.compactDecisionInfo}>
                   <small>ORDEN REGISTRADA</small>
                   <span>
-                    El número de orden emitido por el ERP ya fue registrado y el
-                    requerimiento avanzó a Facturación.
+                    OC registrada. Siguiente etapa: Facturación.
                   </span>
                 </div>
               ) : (
                 <div className={styles.compactDecisionInfo}>
                   <small>PENDIENTE DE INGRESAR OC</small>
                   <span>
-                    Gestiona la orden en el ERP y registra aquí el número
-                    generado. No se genera ningún PDF o comprobante desde esta aplicación.
+                    Gestiona la OC en el ERP e ingresa aquí el número generado.
                   </span>
                 </div>
               )}
@@ -3505,8 +3646,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                     <h3>Ingresar orden de compra</h3>
                   </div>
                   <span>
-                    Al guardar, la orden cambiará a Generada y el requerimiento
-                    avanzará a Facturación.
+                    Al registrar la OC, el proceso pasa a Facturación.
                   </span>
                 </div>
 
@@ -3575,12 +3715,12 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 <div className={styles.compactDecisionHeading}>
                   <div>
                     <span className={styles.eyebrow}>FACTURACIÓN</span>
-                    <h3>Factura asociada a la orden de compra</h3>
+                    <h3>Factura</h3>
                   </div>
                   <span>
                     {selectedRequerimiento.EtapaActual === 'Finalizado'
-                      ? 'La factura ya fue registrada y el requerimiento está finalizado.'
-                      : 'Adjunta el PDF de la factura para cerrar el requerimiento.'}
+                      ? 'Factura registrada. Proceso finalizado.'
+                      : 'Adjunta el PDF para finalizar.'}
                   </span>
                 </div>
 
@@ -3721,9 +3861,6 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                     <span className={styles.eyebrow}>TRAZABILIDAD</span>
                     <h3>Historial del requerimiento</h3>
                   </div>
-                  <small>
-                    Solicitud, aprobación y orden de compra en una sola vista.
-                  </small>
                 </div>
 
                 <div className={styles.historyList}>
@@ -4441,7 +4578,6 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                   <span className={styles.eyebrow}>TRAZABILIDAD</span>
                   <h3>Historial del requerimiento</h3>
                 </div>
-                <small>Los eventos se acumulan conforme avanza el proceso.</small>
               </div>
 
               <div className={styles.historyList}>
@@ -4730,18 +4866,66 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         </div>
       )}
 
-      {/* MENSAJES */}
+      {/* NOTIFICACIÓN FLOTANTE */}
 
-      {message && (
+      {message && (() => {
+        const toastType = getToastType(message);
+        const toastClass =
+          toastType === 'success'
+            ? styles.toastSuccess
+            : toastType === 'error'
+              ? styles.toastError
+              : toastType === 'warning'
+                ? styles.toastWarning
+                : styles.toastInfo;
 
-        <div
-          className={
-            styles.success
-          }
-        >
-          {message}
-        </div>
-      )}
+        const toastIcon =
+          toastType === 'success'
+            ? '✓'
+            : toastType === 'error'
+              ? '×'
+              : toastType === 'warning'
+                ? '!'
+                : 'i';
+
+        const toastTitle =
+          toastType === 'success'
+            ? 'Operación completada'
+            : toastType === 'error'
+              ? 'No se pudo completar'
+              : toastType === 'warning'
+                ? 'Revisa la información'
+                : 'Información';
+
+        return (
+          <div
+            className={styles.toastContainer}
+            role={toastType === 'error' ? 'alert' : 'status'}
+            aria-live={toastType === 'error' ? 'assertive' : 'polite'}
+          >
+            <div className={`${styles.toast} ${toastClass}`}>
+              <div className={styles.toastIcon} aria-hidden="true">
+                {toastIcon}
+              </div>
+
+              <div className={styles.toastContent}>
+                <strong>{toastTitle}</strong>
+                <span>{message}</span>
+              </div>
+
+              <button
+                type="button"
+                className={styles.toastClose}
+                aria-label="Cerrar notificación"
+                title="Cerrar"
+                onClick={() => setMessage('')}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
