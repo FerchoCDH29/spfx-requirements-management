@@ -826,3 +826,245 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* ==========================================================================\n   MOBILE UX — listado en tarjetas y controles táctiles\n   ========================================================================== */
+.mobileRequestsList {
+  display: none;
+}
+
+.mobileRequestCard {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid req.$border-soft;
+  border-radius: 10px;
+  background: #fff;
+  color: req.$text;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(15,35,65,.05);
+  transition: border-color req.$motion, box-shadow req.$motion, transform req.$motion, background-color req.$motion;
+}
+
+.mobileRequestCard:hover {
+  border-color: #c9d8e5;
+  background: #fbfdff;
+}
+
+.mobileRequestCard:focus-visible {
+  outline: 2px solid req.$blue;
+  outline-offset: 2px;
+}
+
+.mobileRequestCardHeader,
+.mobileRequestFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mobileRequestIdBlock {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mobileRequestIdBlock strong {
+  color: req.$navy;
+  font-size: 13px;
+}
+
+.mobileRequestIdBlock span {
+  color: req.$subtle;
+  font-size: 9px;
+}
+
+.mobileRequestDescription {
+  margin-top: 9px;
+  color: #26384a;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mobileRequestMeta {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) minmax(110px,.7fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mobileRequestMeta > div {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid req.$border-soft;
+  border-radius: 8px;
+  background: #fafbfd;
+}
+
+.mobileRequestMeta small {
+  display: block;
+  color: req.$subtle;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+}
+
+.mobileRequestMeta strong {
+  display: block;
+  margin-top: 2px;
+  color: #334155;
+  font-size: 10px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.mobileRequestFooter {
+  align-items: flex-end;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid req.$border-soft;
+}
+
+.mobileRequestStage {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.mobileRequestStage small {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: req.$muted;
+  font-size: 9px;
+}
+
+.mobileRequestOpen {
+  flex: 0 0 auto;
+  color: req.$blue;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+@media (max-width: 700px) {
+  .requestsSection {
+    overflow: hidden;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .requestsTable {
+    display: none;
+  }
+
+  .mobileRequestsList {
+    display: grid;
+    gap: 8px;
+  }
+
+  .tabButton {
+    min-height: 42px;
+    padding: 8px 11px;
+    font-size: 12px;
+  }
+
+  .primaryButton,
+  .secondaryButton {
+    min-height: 44px;
+    padding: 9px 12px;
+    font-size: 12px;
+  }
+
+  .backButton,
+  .viewButton,
+  .previewIconButton,
+  .pdfModalClose {
+    min-height: 40px;
+  }
+
+  .searchBox {
+    height: 42px;
+  }
+
+  .compactProcessOption {
+    min-height: 42px;
+    height: auto;
+  }
+
+  .compactTimelineStep {
+    min-height: 44px;
+    justify-content: flex-start;
+  }
+
+  .compactTimelineStep::before {
+    top: 12px;
+  }
+
+  .compactTimelineMarker {
+    flex-basis: 24px;
+    width: 24px;
+    height: 24px;
+    font-size: 9px;
+  }
+
+  .compactDescriptionReadOnly p {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+  }
+
+  .compactDecisionInfo {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .compactDecisionInfo span {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .readOnlyField strong {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 500px) {
+  .mobileRequestMeta {
+    grid-template-columns: 1fr;
+  }
+
+  .mobileRequestFooter {
+    align-items: flex-start;
+  }
+
+  .mobileRequestStage small {
+    max-width: 210px;
+  }
+
+  .compactStickyActions .actions,
+  .detailActionBar .actions {
+    flex-direction: column;
+  }
+
+  .compactStickyActions .actions > button,
+  .detailActionBar .actions > button {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+}

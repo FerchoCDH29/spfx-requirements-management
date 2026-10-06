@@ -13,6 +13,7 @@ type UserRole =
   | 'Admin'
   | 'Solicitador'
   | 'Aprobador'
+  | 'ResponsableOC'
   | 'SinRol';
 
 type AppView =
@@ -21,7 +22,8 @@ type AppView =
   | 'pendientes'
   | 'aprobadas'
   | 'rechazadas'
-  | 'todas';
+  | 'todas'
+  | 'ordenes';
 
 interface IUser {
   id: number;
@@ -63,6 +65,7 @@ interface IRequerimientoItem {
   Id: number;
   Title: string;
   Descripcion: string;
+  Area?: string;
   CategoriaId?: number;
   AprobadorId?: number;
   ValorPromedio?: number | null;
@@ -105,6 +108,39 @@ interface ICotizacionDetalle {
   Attachments: IAdjuntoCotizacion[];
 }
 
+interface IResponsableOC {
+  Id: number;
+  Title: string;
+  EMail?: string;
+}
+
+interface IOrdenCompra {
+  Id: number;
+  Title: string;
+  RequerimientoId?: number;
+  CotizacionId?: number;
+  TipoOrden: 'GenerarOC' | 'SolicitarOC' | string;
+  TipoDocumento: 'Contrato' | 'OCV' | string;
+  EstadoOC: 'Pendiente' | 'En proceso' | 'Generada' | 'Rechazada' | string;
+  NumeroOC?: string | null;
+  FechaSolicitud?: string;
+  FechaGeneracion?: string | null;
+  Modified?: string;
+  Observaciones?: string | null;
+  AttachmentFiles: IAdjuntoCotizacion[];
+  ResponsableOCId?: number;
+  SolicitadoPor?: {
+    Id: number;
+    Title: string;
+    EMail?: string;
+  };
+  ResponsableOC?: {
+    Id: number;
+    Title: string;
+    EMail?: string;
+  };
+}
+
 interface IHistoryEvent {
   key: string;
   title: string;
@@ -142,6 +178,33 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
   const [requerimientos, setRequerimientos] =
     useState<IRequerimientoItem[]>([]);
+
+  const [ordenesCompra, setOrdenesCompra] =
+    useState<IOrdenCompra[]>([]);
+
+  const [loadingOrdenesCompra, setLoadingOrdenesCompra] =
+    useState<boolean>(false);
+
+  const [selectedOrdenCompra, setSelectedOrdenCompra] =
+    useState<IOrdenCompra | null>(null);
+
+  const [ordenCompraDetalle, setOrdenCompraDetalle] =
+    useState<IOrdenCompra | null>(null);
+
+  const [numeroOCInput, setNumeroOCInput] =
+    useState<string>('');
+
+  const [observacionesOCInput, setObservacionesOCInput] =
+    useState<string>('');
+
+  const [procesandoOrdenCompra, setProcesandoOrdenCompra] =
+    useState<boolean>(false);
+
+  const [facturaPdf, setFacturaPdf] =
+    useState<File | null>(null);
+
+  const [procesandoFactura, setProcesandoFactura] =
+    useState<boolean>(false);
 
   const [loading, setLoading] =
     useState<boolean>(true);
@@ -356,6 +419,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             role = 'Aprobador';
           } else if (nombreRol === 'solicitador' || nombreRol === 'solicitante') {
             role = 'Solicitador';
+          } else if (nombreRol === 'responsableoc') {
+            role = 'ResponsableOC';
           }
         }
       }
@@ -438,6 +503,117 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
   /*
    * ===========================
+   * ÓRDENES DE COMPRA
+   * FUENTE: LISTA SHAREPOINT
+   * ===========================
+   */
+
+  const loadOrdenesCompra = async (
+    responsableOCId: number
+  ): Promise<void> => {
+    try {
+      setLoadingOrdenesCompra(true);
+      setMessage('');
+
+      const filter = encodeURIComponent(
+        `ResponsableOCId eq ${responsableOCId} and Activo eq 1`
+      );
+
+      const ordenesUrl =
+        `${context.pageContext.web.absoluteUrl}` +
+        `/_api/web/lists/getbytitle('OrdenesCompra')/items` +
+        `?$select=` +
+        `Id,Title,RequerimientoId,CotizacionId,TipoOrden,TipoDocumento,EstadoOC,NumeroOC,` +
+        `FechaSolicitud,FechaGeneracion,Modified,Observaciones,ResponsableOCId,` +
+        `AttachmentFiles/FileName,AttachmentFiles/ServerRelativeUrl,` +
+        `ResponsableOC/Id,ResponsableOC/Title,ResponsableOC/EMail,` +
+        `SolicitadoPor/Id,SolicitadoPor/Title,SolicitadoPor/EMail` +
+        `&$expand=ResponsableOC,SolicitadoPor,AttachmentFiles` +
+        `&$filter=${filter}` +
+        `&$orderby=FechaSolicitud desc` +
+        `&$top=500`;
+
+      const response = await context.spHttpClient.get(
+        ordenesUrl,
+        SPHttpClient.configurations.v1,
+        {
+          headers: {
+            Accept: 'application/json;odata=nometadata'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Error cargando órdenes de compra. HTTP ${response.status}: ${await response.text()}`
+        );
+      }
+
+      const data = await response.json();
+      const ordenes = (data.value || []).map((orden: IOrdenCompra) => ({
+        ...orden,
+        AttachmentFiles: orden.AttachmentFiles || []
+      })) as IOrdenCompra[];
+      setOrdenesCompra(ordenes);
+    } catch (error) {
+      console.error('Error cargando órdenes de compra:', error);
+      setMessage(getErrorMessage(error));
+    } finally {
+      setLoadingOrdenesCompra(false);
+    }
+  };
+
+
+
+  const getOrdenCompraPorRequerimiento = async (
+    requerimientoId: number
+  ): Promise<IOrdenCompra | null> => {
+    const filter = encodeURIComponent(
+      `RequerimientoId eq ${requerimientoId} and Activo eq 1`
+    );
+
+    const ordenUrl =
+      `${context.pageContext.web.absoluteUrl}` +
+      `/_api/web/lists/getbytitle('OrdenesCompra')/items` +
+      `?$select=` +
+      `Id,Title,RequerimientoId,CotizacionId,TipoOrden,TipoDocumento,EstadoOC,NumeroOC,` +
+      `FechaSolicitud,FechaGeneracion,Modified,Observaciones,ResponsableOCId,` +
+      `AttachmentFiles/FileName,AttachmentFiles/ServerRelativeUrl,` +
+      `ResponsableOC/Id,ResponsableOC/Title,ResponsableOC/EMail,` +
+      `SolicitadoPor/Id,SolicitadoPor/Title,SolicitadoPor/EMail` +
+      `&$expand=ResponsableOC,SolicitadoPor,AttachmentFiles` +
+      `&$filter=${filter}` +
+      `&$orderby=Id desc&$top=1`;
+
+    const response = await context.spHttpClient.get(
+      ordenUrl,
+      SPHttpClient.configurations.v1,
+      { headers: { Accept: 'application/json;odata=nometadata' } }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `No se pudo cargar la orden de compra del requerimiento #${requerimientoId}. ` +
+        `HTTP ${response.status}: ${await response.text()}`
+      );
+    }
+
+    const data = await response.json();
+
+    if (!data.value?.length) {
+      return null;
+    }
+
+    const orden = data.value[0] as IOrdenCompra;
+    return {
+      ...orden,
+      AttachmentFiles: orden.AttachmentFiles || []
+    };
+  };
+
+
+  /*
+   * ===========================
    * REQUERIMIENTOS
    * FUENTE: LISTA SHAREPOINT
    * ===========================
@@ -491,7 +667,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           `${context.pageContext.web.absoluteUrl}` +
           `/_api/web/lists/getbytitle('Requerimientos')/items` +
           `?$select=` +
-          `Id,Title,Descripcion,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
+          `Id,Title,Descripcion,Area,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
           `Recurrente,Created,EtapaActual,FechaAprobacion,FechaEnvioAprobacion,FechaDecision,ComentarioAprobador,` +
           `Aprobador/Id,Aprobador/Title,Aprobador/EMail,` +
           `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
@@ -607,10 +783,15 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     try {
       setLoadingDetalle(true);
       setCotizacionesDetalle([]);
+      setOrdenCompraDetalle(null);
 
-      const detalle = await getCotizacionesDetalle(requerimientoId);
+      const [detalle, ordenCompra] = await Promise.all([
+        getCotizacionesDetalle(requerimientoId),
+        getOrdenCompraPorRequerimiento(requerimientoId)
+      ]);
 
       setCotizacionesDetalle(detalle);
+      setOrdenCompraDetalle(ordenCompra);
 
       const cotizacionYaSeleccionada = detalle.find(
         (cotizacion: ICotizacionDetalle) => cotizacion.Seleccionada
@@ -633,7 +814,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       `${context.pageContext.web.absoluteUrl}` +
       `/_api/web/lists/getbytitle('Requerimientos')/items(${requerimientoId})` +
       `?$select=` +
-      `Id,Title,Descripcion,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
+      `Id,Title,Descripcion,Area,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
       `Recurrente,Created,EtapaActual,FechaAprobacion,FechaEnvioAprobacion,FechaDecision,ComentarioAprobador,` +
       `Aprobador/Id,Aprobador/Title,Aprobador/EMail,` +
       `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
@@ -739,7 +920,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
           await loadCategories(
             userConfig.areaId,
-            userRole === 'Admin' || userRole === 'Aprobador'
+            userRole === 'Admin' ||
+              userRole === 'Aprobador' ||
+              userRole === 'ResponsableOC'
           );
 
 
@@ -868,6 +1051,18 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
               currentUser.Id
             );
 
+          } else if (
+            userRole === 'ResponsableOC'
+          ) {
+
+            setActiveView(
+              'ordenes'
+            );
+
+            await loadOrdenesCompra(
+              currentUser.Id
+            );
+
           } else {
 
             setActiveView(
@@ -911,13 +1106,21 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
       setActiveView(view);
       setSelectedRequerimiento(null);
+      setSelectedOrdenCompra(null);
+      setOrdenCompraDetalle(null);
       setEtapaConsulta(null);
       setMessage('');
 
-      if (
-        view !== 'nueva' &&
-        user
-      ) {
+      if (!user) {
+        return;
+      }
+
+      if (view === 'ordenes') {
+        void loadOrdenesCompra(user.id);
+        return;
+      }
+
+      if (view !== 'nueva') {
         void loadRequerimientos(
           view,
           user.id
@@ -944,6 +1147,12 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       minute: '2-digit'
     });
   };
+
+
+  // Formato provisional hasta que negocio confirme la estructura oficial.
+  // Solo hay que cambiar esta función cuando se valide la numeración definitiva.
+  const generarNumeroOCProvisional = (requerimientoId: number): string =>
+    `OC-${('000000' + requerimientoId).slice(-6)}`;
 
   const getVistaPreviaArchivo = (archivo: IAdjuntoCotizacion): string =>
     new URL(archivo.ServerRelativeUrl, window.location.origin).href;
@@ -1000,10 +1209,75 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   };
 
 
+  const getResponsableOCPorArea = async (
+    area?: string
+  ): Promise<IResponsableOC> => {
+    const nombreArea = String(area || '').trim();
+
+    if (!nombreArea) {
+      throw new Error(
+        'El requerimiento no tiene un área configurada. No se puede asignar ResponsableOC.'
+      );
+    }
+
+    const safeArea = nombreArea.replace(/'/g, "''");
+    const filter = encodeURIComponent(
+      `NombreArea eq '${safeArea}' and Activo eq 1`
+    );
+
+    const areaUrl =
+      `${context.pageContext.web.absoluteUrl}` +
+      `/_api/web/lists/getbytitle('Areas')/items` +
+      `?$select=Id,NombreArea,ResponsableOC/Id,ResponsableOC/Title,ResponsableOC/EMail` +
+      `&$expand=ResponsableOC` +
+      `&$filter=${filter}` +
+      `&$top=2`;
+
+    const response = await context.spHttpClient.get(
+      areaUrl,
+      SPHttpClient.configurations.v1,
+      { headers: { Accept: 'application/json;odata=nometadata' } }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `No se pudo consultar ResponsableOC para el área ${nombreArea}. ` +
+        `HTTP ${response.status}: ${await response.text()}`
+      );
+    }
+
+    const data = await response.json();
+    const areas = data.value || [];
+
+    if (areas.length === 0) {
+      throw new Error(
+        `No existe una configuración activa para el área "${nombreArea}".`
+      );
+    }
+
+    if (areas.length > 1) {
+      throw new Error(
+        `Existe más de una configuración activa para el área "${nombreArea}".`
+      );
+    }
+
+    const responsable = areas[0].ResponsableOC as IResponsableOC | undefined;
+
+    if (!responsable?.Id) {
+      throw new Error(
+        `El área "${nombreArea}" no tiene ResponsableOC configurado.`
+      );
+    }
+
+    return responsable;
+  };
+
+
   const crearOrdenCompraSiNoExiste = async (
     requerimiento: IRequerimientoItem,
     cotizacionId: number,
-    solicitadoPorId: number
+    solicitadoPorId: number,
+    responsableOCId: number
   ): Promise<void> => {
     const filter = encodeURIComponent(
       `RequerimientoId eq ${requerimiento.Id} and Activo eq 1`
@@ -1012,7 +1286,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     const existingUrl =
       `${context.pageContext.web.absoluteUrl}` +
       `/_api/web/lists/getbytitle('OrdenesCompra')/items` +
-      `?$select=Id&$filter=${filter}&$top=1`;
+      `?$select=Id,ResponsableOCId,NumeroOC,EstadoOC,FechaGeneracion,TipoOrden` +
+      `&$filter=${filter}&$top=1`;
 
     const existingResponse = await context.spHttpClient.get(
       existingUrl,
@@ -1027,22 +1302,78 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     }
 
     const existingData = await existingResponse.json();
+    const esGeneracionAutomatica = requerimiento.Recurrente;
+    const ahora = new Date().toISOString();
+    const numeroOCAutomatico = esGeneracionAutomatica
+      ? generarNumeroOCProvisional(requerimiento.Id)
+      : undefined;
 
     if (existingData.value?.length > 0) {
+      const existingOrder = existingData.value[0] as {
+        Id: number;
+        ResponsableOCId?: number;
+        NumeroOC?: string | null;
+        EstadoOC?: string;
+        FechaGeneracion?: string | null;
+        TipoOrden?: string;
+      };
+
+      const cambios: Record<string, unknown> = {};
+
+      // Conserva la asignación histórica si ya existía.
+      if (!existingOrder.ResponsableOCId) {
+        cambios.ResponsableOCId = responsableOCId;
+      }
+
+      // En un reintento de aprobación, completa la generación automática
+      // si la OC de Contrato quedó incompleta.
+      if (esGeneracionAutomatica) {
+        if (!existingOrder.NumeroOC) {
+          cambios.NumeroOC = numeroOCAutomatico;
+        }
+
+        if (existingOrder.EstadoOC !== 'Generada') {
+          cambios.EstadoOC = 'Generada';
+        }
+
+        if (!existingOrder.FechaGeneracion) {
+          cambios.FechaGeneracion = ahora;
+        }
+      }
+
+      if (Object.keys(cambios).length > 0) {
+        await updateListItem(
+          'OrdenesCompra',
+          existingOrder.Id,
+          cambios
+        );
+      }
+
       return;
     }
 
-    await createListItem('OrdenesCompra', {
+    const ordenBody: Record<string, unknown> = {
       Title: `OC-REQ-${requerimiento.Id}`,
       RequerimientoId: requerimiento.Id,
       CotizacionId: cotizacionId,
-      TipoOrden: requerimiento.Recurrente ? 'GenerarOC' : 'SolicitarOC',
-      TipoDocumento: requerimiento.Recurrente ? 'Contrato' : 'OCV',
-      EstadoOC: 'Pendiente',
-      FechaSolicitud: new Date().toISOString(),
+      TipoOrden: esGeneracionAutomatica ? 'GenerarOC' : 'SolicitarOC',
+      TipoDocumento: esGeneracionAutomatica ? 'Contrato' : 'OCV',
+      EstadoOC: esGeneracionAutomatica ? 'Generada' : 'Pendiente',
+      ResponsableOCId: responsableOCId,
+      FechaSolicitud: ahora,
       SolicitadoPorId: solicitadoPorId,
       Activo: true
-    });
+    };
+
+    if (esGeneracionAutomatica) {
+      ordenBody.NumeroOC = numeroOCAutomatico;
+      ordenBody.FechaGeneracion = ahora;
+    }
+
+    await createListItem(
+      'OrdenesCompra',
+      ordenBody
+    );
   };
 
   const decidirRequerimiento = async (aprobar: boolean): Promise<void> => {
@@ -1132,6 +1463,19 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
         valorCotizacionAprobada = cotizacionSeleccionada.ValorTotal;
 
+        // Validar la asignación operativa antes de modificar cotizaciones o crear la OC.
+        const responsableOC = await getResponsableOCPorArea(
+          requerimientoActual.Area
+        );
+
+        console.log('ASIGNACIÓN RESPONSABLE OC:', {
+          requerimientoId,
+          area: requerimientoActual.Area,
+          responsableOCId: responsableOC.Id,
+          responsableOC: responsableOC.Title,
+          responsableOCEmail: responsableOC.EMail
+        });
+
         const mensajeConfirmacion = requerimientoActual.Recurrente
           ? 'Al aprobar este requerimiento se generará automáticamente la orden de compra asociada a un Contrato con la cotización seleccionada. ¿Deseas continuar?'
           : 'Al aprobar este requerimiento se generará automáticamente la solicitud de orden de compra (OCV) con la cotización seleccionada. ¿Deseas continuar?';
@@ -1161,7 +1505,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         await crearOrdenCompraSiNoExiste(
           requerimientoActual,
           cotizacionSeleccionadaId,
-          solicitadoPorId
+          solicitadoPorId,
+          responsableOC.Id
         );
       } else {
         // Un requerimiento rechazado no debe conservar
@@ -1182,7 +1527,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         EtapaActual: aprobar
           ? (
               requerimientoActual.Recurrente
-                ? 'GenerarOC'
+                ? 'Facturacion'
                 : 'SolicitarOC'
             )
           : 'Aprobacion',
@@ -1204,8 +1549,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       setMessage(
         aprobar
           ? requerimientoActual.Recurrente
-            ? `Requerimiento #${requerimientoId} aprobado. Se generó la orden de compra asociada a Contrato.`
-            : `Requerimiento #${requerimientoId} aprobado. Se generó la solicitud de orden de compra OCV.`
+            ? `Requerimiento #${requerimientoId} aprobado. La orden de compra se generó automáticamente y el proceso pasó a Facturación.`
+            : `Requerimiento #${requerimientoId} aprobado. La solicitud de orden de compra quedó pendiente de gestión en ERP.`
           : `Requerimiento #${requerimientoId} rechazado correctamente.`
       );
     } catch (error) {
@@ -1224,8 +1569,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     const labels: Record<string, string> = {
       Solicitud: 'Solicitud',
       Aprobacion: 'Aprobación',
-      GenerarOC: 'Generar orden de compra',
-      SolicitarOC: 'Solicitar orden de compra',
+      GenerarOC: 'Orden de compra',
+      SolicitarOC:
+        user?.role === 'ResponsableOC'
+          ? 'Ingresar orden de compra'
+          : 'Orden de compra',
       Facturacion: 'Facturación',
       Finalizado: 'Finalizado'
     };
@@ -1311,6 +1659,85 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       });
     }
 
+    const orden =
+      ordenCompraDetalle?.RequerimientoId === item.Id
+        ? ordenCompraDetalle
+        : null;
+
+    if (orden) {
+      if (orden.TipoOrden === 'GenerarOC') {
+        const detallesOC: string[] = [];
+
+        if (orden.NumeroOC) {
+          detallesOC.push(`Número OC: ${orden.NumeroOC}`);
+        }
+
+        if (orden.TipoDocumento) {
+          detallesOC.push(`Tipo: ${orden.TipoDocumento}`);
+        }
+
+        events.push({
+          key: `oc-generated-${orden.Id}`,
+          title: 'Orden de compra generada automáticamente',
+          date: orden.FechaGeneracion || orden.FechaSolicitud,
+          actor: 'Sistema',
+          detail:
+            detallesOC.join(' · ') ||
+            'Orden de compra generada automáticamente.'
+        });
+      } else {
+        const responsable =
+          orden.ResponsableOC?.Title ||
+          'Responsable de orden de compra';
+
+        events.push({
+          key: `oc-request-${orden.Id}`,
+          title: 'Orden de compra asignada',
+          date: orden.FechaSolicitud,
+          actor: responsable,
+          detail:
+            `Pendiente de ingresar el número emitido por el ERP. ` +
+            `Estado: ${orden.EstadoOC}.`
+        });
+
+        if (orden.EstadoOC === 'Generada' && orden.NumeroOC) {
+          const detallesRegistro: string[] = [
+            `Número OC: ${orden.NumeroOC}`
+          ];
+
+          if (orden.Observaciones) {
+            detallesRegistro.push(orden.Observaciones);
+          }
+
+          events.push({
+            key: `oc-registered-${orden.Id}`,
+            title: 'Orden de compra registrada',
+            date: orden.FechaGeneracion || orden.FechaSolicitud,
+            actor: responsable,
+            detail: detallesRegistro.join(' · ')
+          });
+        }
+      }
+    }
+
+    if (orden?.AttachmentFiles?.length) {
+      const factura = orden.AttachmentFiles[0];
+      const responsable =
+        orden.ResponsableOC?.Title ||
+        'Responsable de orden de compra';
+
+      events.push({
+        key: `invoice-${orden.Id}`,
+        title:
+          item.EtapaActual === 'Finalizado'
+            ? 'Factura cargada y requerimiento finalizado'
+            : 'Factura PDF cargada',
+        date: orden.Modified,
+        actor: responsable,
+        detail: `Archivo: ${factura.FileName}`
+      });
+    }
+
     return events;
   };
 
@@ -1376,38 +1803,125 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     }
 
     if (etapa === 'GenerarOC' || etapa === 'SolicitarOC') {
+      const orden =
+        ordenCompraDetalle?.RequerimientoId === item.Id
+          ? ordenCompraDetalle
+          : null;
+
+      if (!orden) {
+        return {
+          title: getEtapaLabel(etapa),
+          status: 'Sin información',
+          date:
+            item.FechaDecision ||
+            item.FechaAprobacion,
+          actor: 'Proceso operativo',
+          details: [
+            'Todavía no existe una orden de compra asociada a este requerimiento.'
+          ]
+        };
+      }
+
+      if (orden.TipoOrden === 'GenerarOC') {
+        const details: string[] = [
+          'La orden de compra fue generada automáticamente al aprobar el requerimiento.'
+        ];
+
+        if (orden.NumeroOC) {
+          details.push(`Número OC: ${orden.NumeroOC}`);
+        }
+
+        if (orden.TipoDocumento) {
+          details.push(`Tipo: ${orden.TipoDocumento}`);
+        }
+
+        return {
+          title: 'Orden de compra',
+          status:
+            orden.EstadoOC === 'Generada'
+              ? 'Generada'
+              : orden.EstadoOC,
+          date:
+            orden.FechaGeneracion ||
+            orden.FechaSolicitud,
+          actor: 'Sistema',
+          details
+        };
+      }
+
+      const responsable =
+        orden.ResponsableOC?.Title ||
+        'Responsable de orden de compra';
+
+      const details: string[] = [];
+
+      if (orden.EstadoOC === 'Generada' && orden.NumeroOC) {
+        details.push(`Número OC: ${orden.NumeroOC}`);
+        details.push(
+          'La orden emitida por el ERP fue registrada correctamente.'
+        );
+      } else {
+        details.push(
+          'La orden debe gestionarse en el ERP y luego registrar aquí el número generado.'
+        );
+      }
+
+      details.push(`Responsable: ${responsable}`);
+
+      if (orden.Observaciones) {
+        details.push(`Observaciones: ${orden.Observaciones}`);
+      }
+
       return {
-        title: getEtapaLabel(etapa),
+        title:
+          user?.role === 'ResponsableOC'
+            ? 'Ingresar orden de compra'
+            : 'Orden de compra',
         status:
-          item.EtapaActual === etapa
-            ? 'Etapa actual'
-            : 'Completada',
+          orden.EstadoOC === 'Generada'
+            ? 'OC registrada'
+            : orden.EstadoOC === 'En proceso'
+              ? 'En gestión'
+              : 'Pendiente de ingresar OC',
         date:
-          item.FechaDecision ||
-          item.FechaAprobacion,
-        actor: 'Proceso operativo',
-        details: [
-          etapa === 'GenerarOC'
-            ? 'La solicitud fue aprobada y quedó lista para generar la orden de compra.'
-            : 'La solicitud fue aprobada y quedó lista para solicitar la orden de compra.',
-          'El detalle de la OC se mostrará aquí cuando implementemos esa etapa.'
-        ]
+          orden.EstadoOC === 'Generada'
+            ? (orden.FechaGeneracion || orden.FechaSolicitud)
+            : orden.FechaSolicitud,
+        actor: responsable,
+        details
       };
     }
 
     if (etapa === 'Facturacion') {
+      const facturaAdjunta = ordenCompraDetalle?.AttachmentFiles?.[0];
+
+      const details: string[] = facturaAdjunta
+        ? [
+            `Factura PDF: ${facturaAdjunta.FileName}`,
+            item.EtapaActual === 'Finalizado'
+              ? 'La factura fue cargada y el requerimiento quedó finalizado.'
+              : 'La factura ya está cargada. Falta completar la finalización del requerimiento.'
+          ]
+        : [
+            'Pendiente de cargar el PDF de la factura asociada a la orden de compra.'
+          ];
+
       return {
         title: 'Facturación',
         status:
-          item.EtapaActual === 'Facturacion'
-            ? 'Etapa actual'
-            : item.EtapaActual === 'Finalizado'
-              ? 'Completada'
+          item.EtapaActual === 'Finalizado'
+            ? 'Completada'
+            : item.EtapaActual === 'Facturacion'
+              ? (facturaAdjunta ? 'Factura cargada' : 'Pendiente de factura')
               : 'No iniciada',
-        actor: 'Proceso operativo',
-        details: [
-          'En esta etapa se cargará el PDF de la factura asociada a la orden de compra.'
-        ]
+        date:
+          facturaAdjunta
+            ? ordenCompraDetalle?.Modified
+            : undefined,
+        actor:
+          ordenCompraDetalle?.ResponsableOC?.Title ||
+          'Responsable de orden de compra',
+        details
       };
     }
 
@@ -1417,9 +1931,15 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         item.EtapaActual === 'Finalizado'
           ? 'Completado'
           : 'No iniciado',
+      date:
+        ordenCompraDetalle?.AttachmentFiles?.length
+          ? ordenCompraDetalle.Modified
+          : undefined,
       actor: 'Proceso',
       details: [
-        'El requerimiento queda cerrado cuando termina la facturación.'
+        ordenCompraDetalle?.AttachmentFiles?.length
+          ? 'El requerimiento fue cerrado después de cargar el PDF de la factura.'
+          : 'El requerimiento queda cerrado cuando termina la facturación.'
       ]
     };
   };
@@ -1436,10 +1956,320 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   });
 
 
+  const filteredOrdenesCompra = ordenesCompra.filter((orden: IOrdenCompra) => {
+    const term = searchTerm.trim().toLowerCase();
+
+    if (!term) {
+      return true;
+    }
+
+    return (
+      String(orden.Id).indexOf(term) >= 0 ||
+      String(orden.RequerimientoId || '').indexOf(term) >= 0 ||
+      String(orden.Title || '').toLowerCase().indexOf(term) >= 0 ||
+      String(orden.TipoDocumento || '').toLowerCase().indexOf(term) >= 0 ||
+      String(orden.TipoOrden || '').toLowerCase().indexOf(term) >= 0 ||
+      String(orden.EstadoOC || '').toLowerCase().indexOf(term) >= 0 ||
+      String(orden.NumeroOC || '').toLowerCase().indexOf(term) >= 0
+    );
+  });
+
+
+  const abrirOrdenCompra = async (
+    orden: IOrdenCompra
+  ): Promise<void> => {
+    try {
+      setSelectedOrdenCompra(orden);
+      setOrdenCompraDetalle(orden);
+      setNumeroOCInput(orden.NumeroOC || '');
+      setObservacionesOCInput(orden.Observaciones || '');
+      setFacturaPdf(null);
+      setMessage('');
+
+      if (!orden.RequerimientoId) {
+        throw new Error(
+          'La orden de compra no tiene un requerimiento asociado.'
+        );
+      }
+
+      const requerimiento =
+        await loadRequerimientoPorId(orden.RequerimientoId);
+
+      setSelectedRequerimiento(requerimiento);
+      setEtapaConsulta(
+        requerimiento.EtapaActual || 'Solicitud'
+      );
+
+      await loadDetalleRequerimiento(requerimiento.Id);
+
+      const ordenActualizada =
+        await getOrdenCompraPorRequerimiento(requerimiento.Id);
+
+      if (ordenActualizada) {
+        setSelectedOrdenCompra(ordenActualizada);
+        setOrdenCompraDetalle(ordenActualizada);
+        setNumeroOCInput(ordenActualizada.NumeroOC || '');
+        setObservacionesOCInput(
+          ordenActualizada.Observaciones || ''
+        );
+      }
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    }
+  };
+
+  const cerrarOrdenCompra = (): void => {
+    setSelectedOrdenCompra(null);
+    setSelectedRequerimiento(null);
+    setOrdenCompraDetalle(null);
+    setCotizacionesDetalle([]);
+    setEtapaConsulta(null);
+    setNumeroOCInput('');
+    setObservacionesOCInput('');
+    setFacturaPdf(null);
+    setMessage('');
+  };
+
+  const registrarNumeroOrdenCompra = async (): Promise<void> => {
+    if (!user || user.role !== 'ResponsableOC') {
+      setMessage('No tienes permisos para gestionar órdenes de compra.');
+      return;
+    }
+
+    if (!selectedOrdenCompra) {
+      return;
+    }
+
+    if (
+      selectedOrdenCompra.ResponsableOCId &&
+      selectedOrdenCompra.ResponsableOCId !== user.id
+    ) {
+      setMessage('Esta orden de compra está asignada a otro responsable.');
+      return;
+    }
+
+    if (selectedOrdenCompra.TipoOrden !== 'SolicitarOC') {
+      setMessage(
+        'Esta orden se genera automáticamente y no requiere registrar un número desde ERP.'
+      );
+      return;
+    }
+
+    if (selectedOrdenCompra.EstadoOC === 'Generada') {
+      setMessage('Esta orden de compra ya fue registrada como generada.');
+      return;
+    }
+
+    const numeroOC = numeroOCInput.trim();
+
+    if (!numeroOC) {
+      setMessage('Ingrese el número de orden de compra generado por el ERP.');
+      return;
+    }
+
+    try {
+      setProcesandoOrdenCompra(true);
+      setMessage('');
+
+      const ahora = new Date().toISOString();
+
+      await updateListItem(
+        'OrdenesCompra',
+        selectedOrdenCompra.Id,
+        {
+          NumeroOC: numeroOC,
+          EstadoOC: 'Generada',
+          FechaGeneracion: ahora,
+          Observaciones: observacionesOCInput.trim()
+        }
+      );
+
+      if (selectedOrdenCompra.RequerimientoId) {
+        await updateListItem(
+          'Requerimientos',
+          selectedOrdenCompra.RequerimientoId,
+          {
+            EtapaActual: 'Facturacion'
+          }
+        );
+      }
+
+      await loadOrdenesCompra(user.id);
+
+      const ordenActualizada =
+        selectedOrdenCompra.RequerimientoId
+          ? await getOrdenCompraPorRequerimiento(
+              selectedOrdenCompra.RequerimientoId
+            )
+          : null;
+
+      if (ordenActualizada) {
+        setSelectedOrdenCompra(ordenActualizada);
+        setOrdenCompraDetalle(ordenActualizada);
+        setNumeroOCInput(ordenActualizada.NumeroOC || '');
+        setObservacionesOCInput(
+          ordenActualizada.Observaciones || ''
+        );
+      }
+
+      if (selectedOrdenCompra.RequerimientoId) {
+        const requerimientoActualizado =
+          await loadRequerimientoPorId(
+            selectedOrdenCompra.RequerimientoId
+          );
+
+        setSelectedRequerimiento(requerimientoActualizado);
+        setEtapaConsulta('Facturacion');
+      }
+
+      setMessage(
+        `Orden ${numeroOC} registrada correctamente. El requerimiento pasó a Facturación.`
+      );
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setProcesandoOrdenCompra(false);
+    }
+  };
+
+
+  const adjuntarArchivo = async (
+    listTitle: string,
+    itemId: number,
+    archivoPdf: File
+  ): Promise<void> => {
+    const safeFileName = archivoPdf.name.replace(/'/g, "''");
+    const url =
+      `${context.pageContext.web.absoluteUrl}` +
+      `/_api/web/lists/getbytitle('${listTitle}')/items(${itemId})` +
+      `/AttachmentFiles/add(FileName=@fileName)` +
+      `?@fileName='${encodeURIComponent(safeFileName)}'`;
+
+    const response = await context.spHttpClient.post(
+      url,
+      SPHttpClient.configurations.v1,
+      {
+        headers: { Accept: 'application/json;odata=nometadata' },
+        body: archivoPdf
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `No se pudo adjuntar ${archivoPdf.name} en ${listTitle}. HTTP ${response.status}: ${errorText}`
+      );
+    }
+  };
+
+
+  const registrarFacturaYFinalizar = async (): Promise<void> => {
+    if (!user || user.role !== 'ResponsableOC') {
+      setMessage('No tienes permisos para registrar la factura.');
+      return;
+    }
+
+    if (!selectedOrdenCompra || !selectedRequerimiento) {
+      setMessage('No se pudo identificar la orden de compra o el requerimiento.');
+      return;
+    }
+
+    if (
+      selectedOrdenCompra.ResponsableOCId &&
+      selectedOrdenCompra.ResponsableOCId !== user.id
+    ) {
+      setMessage('Esta orden de compra está asignada a otro responsable.');
+      return;
+    }
+
+    if (selectedOrdenCompra.EstadoOC !== 'Generada') {
+      setMessage('La orden de compra debe estar generada antes de registrar la factura.');
+      return;
+    }
+
+    if (selectedRequerimiento.EtapaActual !== 'Facturacion') {
+      setMessage('El requerimiento no se encuentra en la etapa de Facturación.');
+      return;
+    }
+
+    const facturaExistente = selectedOrdenCompra.AttachmentFiles?.[0];
+
+    if (!facturaExistente && !facturaPdf) {
+      setMessage('Adjunte el PDF de la factura antes de finalizar.');
+      return;
+    }
+
+    if (facturaPdf) {
+      const esPdf =
+        facturaPdf.type === 'application/pdf' ||
+        /\.pdf$/i.test(facturaPdf.name);
+
+      if (!esPdf) {
+        setMessage('La factura debe ser un archivo PDF.');
+        return;
+      }
+    }
+
+    try {
+      setProcesandoFactura(true);
+      setMessage('');
+
+      // Si el archivo ya existe por un intento anterior, no lo vuelve a adjuntar.
+      if (!facturaExistente && facturaPdf) {
+        await adjuntarArchivo(
+          'OrdenesCompra',
+          selectedOrdenCompra.Id,
+          facturaPdf
+        );
+      }
+
+      if (!selectedOrdenCompra.RequerimientoId) {
+        throw new Error(
+          'La orden de compra no tiene un requerimiento asociado.'
+        );
+      }
+
+      await updateListItem(
+        'Requerimientos',
+        selectedOrdenCompra.RequerimientoId,
+        {
+          EtapaActual: 'Finalizado'
+        }
+      );
+
+      const [ordenActualizada, requerimientoActualizado] = await Promise.all([
+        getOrdenCompraPorRequerimiento(selectedOrdenCompra.RequerimientoId),
+        loadRequerimientoPorId(selectedOrdenCompra.RequerimientoId)
+      ]);
+
+      if (ordenActualizada) {
+        setSelectedOrdenCompra(ordenActualizada);
+        setOrdenCompraDetalle(ordenActualizada);
+      }
+
+      setSelectedRequerimiento(requerimientoActualizado);
+      setEtapaConsulta('Finalizado');
+      setFacturaPdf(null);
+
+      await loadOrdenesCompra(user.id);
+
+      setMessage(
+        'Factura registrada correctamente. El requerimiento quedó finalizado.'
+      );
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setProcesandoFactura(false);
+    }
+  };
+
+
   const abrirRequerimiento =
   (requerimiento: IRequerimientoItem): void => {
 
     setSelectedRequerimiento(requerimiento);
+    setSelectedOrdenCompra(null);
+    setOrdenCompraDetalle(null);
     setEtapaConsulta(requerimiento.EtapaActual || 'Solicitud');
     setComentarioAprobador('');
     setCotizacionSeleccionadaId(null);
@@ -1561,35 +2391,6 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     setCotizaciones(cotizaciones.map((cotizacion, index) =>
       index === cotizacionIndex ? { ...cotizacion, ...changes } : cotizacion
     ));
-  };
-
-  const adjuntarArchivo = async (
-    listTitle: string,
-    itemId: number,
-    archivoPdf: File
-  ): Promise<void> => {
-    const safeFileName = archivoPdf.name.replace(/'/g, "''");
-    const url =
-      `${context.pageContext.web.absoluteUrl}` +
-      `/_api/web/lists/getbytitle('${listTitle}')/items(${itemId})` +
-      `/AttachmentFiles/add(FileName=@fileName)` +
-      `?@fileName='${encodeURIComponent(safeFileName)}'`;
-
-    const response = await context.spHttpClient.post(
-      url,
-      SPHttpClient.configurations.v1,
-      {
-        headers: { Accept: 'application/json;odata=nometadata' },
-        body: archivoPdf
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `No se pudo adjuntar ${archivoPdf.name} en ${listTitle}. HTTP ${response.status}: ${errorText}`
-      );
-    }
   };
 
   const saveRequerimiento = async (enviar: boolean): Promise<void> => {
@@ -2043,6 +2844,20 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         </div>
       )}
 
+      {/* NAVEGACIÓN RESPONSABLE OC */}
+
+      {user?.role === 'ResponsableOC' && (
+        <div className={styles.tabs}>
+          <button
+            type="button"
+            className={getTabClass('ordenes')}
+            onClick={() => changeView('ordenes')}
+          >
+            Órdenes de compra
+          </button>
+        </div>
+      )}
+
       {/* NAVEGACIÓN ADMIN */}
 
       {user?.role === 'Admin' && (
@@ -2325,16 +3140,906 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         </div>
       )}
 
+      {/* ÓRDENES DE COMPRA - RESPONSABLE OC */}
+
+      {activeView === 'ordenes' && user?.role === 'ResponsableOC' && (
+        selectedOrdenCompra ? (
+          <div className={styles.detailWorkspace}>
+            <div className={styles.detailTopBar}>
+              <button
+                type="button"
+                className={styles.backButton}
+                disabled={procesandoOrdenCompra}
+                onClick={cerrarOrdenCompra}
+              >
+                ← Órdenes de compra
+              </button>
+
+              <div className={styles.detailSectionHeading}>
+                <div className={styles.detailTitleRow}>
+                  <h2 className={styles.pageTitle}>
+                    {selectedRequerimiento
+                      ? `Requerimiento #${selectedRequerimiento.Id}`
+                      : (selectedOrdenCompra.Title || `OC #${selectedOrdenCompra.Id}`)}
+                  </h2>
+                  <span className={getEstadoClass(
+                    selectedOrdenCompra.EstadoOC === 'Generada'
+                      ? 'Aprobado'
+                      : selectedOrdenCompra.EstadoOC === 'Rechazada'
+                        ? 'Rechazado'
+                        : 'Enviado Aprobacion'
+                  )}>
+                    {selectedOrdenCompra.EstadoOC}
+                  </span>
+                </div>
+                <span className={styles.roleAccentBadge}>
+                  {selectedOrdenCompra.TipoDocumento}
+                </span>
+              </div>
+            </div>
+
+            {selectedRequerimiento && (
+              <>
+                <section className={`${styles.detailCard} ${styles.unifiedRequestCard}`}>
+                  <div className={styles.readOnlyFieldsGrid}>
+                    <div className={styles.readOnlyField}>
+                      <small>Área</small>
+                      <strong>{selectedRequerimiento.Area || 'Sin área'}</strong>
+                    </div>
+
+                    <div className={styles.readOnlyField}>
+                      <small>Categoría</small>
+                      <strong>{getCategoriaNombre(selectedRequerimiento.CategoriaId)}</strong>
+                    </div>
+
+                    <div className={styles.readOnlyField}>
+                      <small>Tipo de proceso</small>
+                      <strong>
+                        {selectedRequerimiento.Recurrente
+                          ? 'Recurrente · Contrato'
+                          : 'No recurrente · OCV'}
+                      </strong>
+                    </div>
+
+                    <div className={styles.readOnlyField}>
+                      <small>Solicitado por</small>
+                      <strong>
+                        {selectedRequerimiento.Solicitante?.Title || 'Sin solicitante'}
+                      </strong>
+                    </div>
+
+                    <div className={styles.readOnlyField}>
+                      <small>Fecha de solicitud</small>
+                      <strong>{formatDateTime(selectedRequerimiento.Created)}</strong>
+                    </div>
+
+                    <div className={styles.readOnlyField}>
+                      <small>Valor aprobado</small>
+                      <strong>{formatCurrency(selectedRequerimiento.ValorTotal)}</strong>
+                    </div>
+                  </div>
+
+                  <div className={styles.compactDescriptionReadOnly}>
+                    <small>Descripción</small>
+                    <p title={selectedRequerimiento.Descripcion}>
+                      {selectedRequerimiento.Descripcion}
+                    </p>
+                  </div>
+
+                  <div className={styles.compactDecisionInfo}>
+                    <small>APROBACIÓN</small>
+                    <span>
+                      <strong>Aprobado por </strong>
+                      {selectedRequerimiento.DecisionPor?.Title ||
+                        selectedRequerimiento.Aprobador?.Title ||
+                        'Sin información'}
+                      {(selectedRequerimiento.FechaDecision ||
+                        selectedRequerimiento.FechaAprobacion) && (
+                        <>
+                          {' · '}
+                          {formatDateTime(
+                            selectedRequerimiento.FechaDecision ||
+                            selectedRequerimiento.FechaAprobacion
+                          )}
+                        </>
+                      )}
+                      {selectedRequerimiento.ComentarioAprobador && (
+                        <> · {selectedRequerimiento.ComentarioAprobador}</>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className={styles.compactTimeline} aria-label="Etapas del proceso">
+                    {getEtapas(selectedRequerimiento).map((etapa, index, etapas) => {
+                      const currentIndex = Math.max(
+                        0,
+                        etapas.indexOf(
+                          selectedRequerimiento.EtapaActual || 'Solicitud'
+                        )
+                      );
+
+                      const completed =
+                        index < currentIndex ||
+                        selectedRequerimiento.EtapaActual === 'Finalizado';
+
+                      const current =
+                        index === currentIndex &&
+                        selectedRequerimiento.EtapaActual !== 'Finalizado';
+
+                      const consultable =
+                        index <= currentIndex ||
+                        selectedRequerimiento.EtapaActual === 'Finalizado';
+
+                      const selected = etapaConsulta === etapa;
+
+                      return (
+                        <button
+                          key={etapa}
+                          type="button"
+                          className={`${styles.compactTimelineStep} ${styles.timelineStepButton} ${completed ? styles.timelineCompleted : ''} ${current ? styles.timelineCurrent : ''} ${selected ? styles.timelineSelected : ''}`}
+                          aria-current={current ? 'step' : undefined}
+                          aria-pressed={selected}
+                          disabled={!consultable}
+                          onClick={() => {
+                            if (consultable) {
+                              setEtapaConsulta(etapa);
+                            }
+                          }}
+                        >
+                          <div className={styles.compactTimelineMarker}>
+                            {completed ? '✓' : index + 1}
+                          </div>
+                          <span>{getEtapaLabel(etapa)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {etapaConsulta && (() => {
+                    const etapaData = getStageInspection(
+                      selectedRequerimiento,
+                      etapaConsulta
+                    );
+
+                    return (
+                      <div className={styles.stageInspection}>
+                        <div className={styles.stageInspectionHeader}>
+                          <div>
+                            <small>DETALLE DE ETAPA</small>
+                            <strong>{etapaData.title}</strong>
+                          </div>
+                          <span>{etapaData.status}</span>
+                        </div>
+
+                        <div className={styles.stageInspectionMeta}>
+                          {etapaData.date && (
+                            <span>{formatDateTime(etapaData.date)}</span>
+                          )}
+                          {etapaData.actor && (
+                            <span>{etapaData.actor}</span>
+                          )}
+                        </div>
+
+                        <div className={styles.stageInspectionDetails}>
+                          {etapaData.details.map(
+                            (detail: string, detailIndex: number) => (
+                              <div key={`${etapaData.title}-${detailIndex}`}>
+                                {detail}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </section>
+
+                <section className={`${styles.formSection} ${styles.detailQuotationsSection}`}>
+                  <div className={`${styles.sectionHeaderRow} ${styles.compactQuotationHeader}`}>
+                    <h3>Cotización aprobada</h3>
+                  </div>
+
+                  {loadingDetalle ? (
+                    <div className={styles.emptyState}>Cargando cotización...</div>
+                  ) : cotizacionesDetalle.filter(
+                        (cotizacion) => cotizacion.Seleccionada
+                      ).length === 0 ? (
+                    <div className={styles.emptyState}>
+                      No se encontró la cotización aprobada.
+                    </div>
+                  ) : (
+                    <div className={styles.approvalQuotationGrid}>
+                      {cotizacionesDetalle
+                        .filter((cotizacion) => cotizacion.Seleccionada)
+                        .map((cotizacion: ICotizacionDetalle) => (
+                          <div
+                            key={cotizacion.Id}
+                            className={`${styles.approvalQuotationCard} ${styles.approvalQuotationCardSelected}`}
+                          >
+                            <div className={styles.readOnlyQuotationHeader}>
+                              <span className={styles.quotationLabel}>
+                                COTIZACIÓN APROBADA
+                              </span>
+                              <div className={styles.readOnlyQuotationHeaderMeta}>
+                                {cotizacion.CodigoCotizacionInterno && (
+                                  <small>{cotizacion.CodigoCotizacionInterno}</small>
+                                )}
+                                <span className={styles.selectionCheck}>✓</span>
+                              </div>
+                            </div>
+
+                            <div className={styles.readOnlyQuotationBody}>
+                              <div className={styles.readOnlyQuotationField}>
+                                <small>PDF</small>
+                                {cotizacion.Attachments.length > 0 ? (
+                                  cotizacion.Attachments.map((archivo) => (
+                                    <div
+                                      key={archivo.ServerRelativeUrl}
+                                      className={styles.readOnlyPdfChip}
+                                    >
+                                      <span className={styles.pdfFileIcon}>PDF</span>
+                                      <span
+                                        className={styles.pdfFileName}
+                                        title={archivo.FileName}
+                                      >
+                                        {archivo.FileName}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        className={styles.previewIconButton}
+                                        onClick={() => setArchivoPreview(archivo)}
+                                      >
+                                        Ver PDF
+                                      </button>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span className={styles.noFileText}>
+                                    Sin documento adjunto
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className={styles.readOnlyQuotationField}>
+                                <small>Valor aprobado</small>
+                                <strong className={styles.readOnlyQuotationValue}>
+                                  {formatCurrency(cotizacion.ValorTotal)}
+                                </strong>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+
+            <section className={`${styles.detailCard} ${styles.unifiedRequestCard}`}>
+              <div className={styles.readOnlyFieldsGrid}>
+                <div className={styles.readOnlyField}>
+                  <small>Requerimiento</small>
+                  <strong>
+                    {selectedOrdenCompra.RequerimientoId
+                      ? `#${selectedOrdenCompra.RequerimientoId}`
+                      : 'Sin requerimiento'}
+                  </strong>
+                </div>
+
+                <div className={styles.readOnlyField}>
+                  <small>Tipo de gestión</small>
+                  <strong>
+                    {selectedOrdenCompra.TipoOrden === 'GenerarOC'
+                      ? 'Generación automática'
+                      : 'Ingreso desde ERP'}
+                  </strong>
+                </div>
+
+                <div className={styles.readOnlyField}>
+                  <small>Solicitado por</small>
+                  <strong>
+                    {selectedOrdenCompra.SolicitadoPor?.Title || 'Sin solicitante'}
+                  </strong>
+                </div>
+
+                <div className={styles.readOnlyField}>
+                  <small>Fecha solicitud</small>
+                  <strong>
+                    {selectedOrdenCompra.FechaSolicitud
+                      ? formatDateTime(selectedOrdenCompra.FechaSolicitud)
+                      : 'Sin fecha'}
+                  </strong>
+                </div>
+
+                <div className={styles.readOnlyField}>
+                  <small>Número OC</small>
+                  <strong>
+                    {selectedOrdenCompra.NumeroOC || 'Pendiente'}
+                  </strong>
+                </div>
+
+                <div className={styles.readOnlyField}>
+                  <small>Fecha generación</small>
+                  <strong>
+                    {selectedOrdenCompra.FechaGeneracion
+                      ? formatDateTime(selectedOrdenCompra.FechaGeneracion)
+                      : 'Pendiente'}
+                  </strong>
+                </div>
+              </div>
+
+              {selectedOrdenCompra.TipoOrden === 'GenerarOC' ? (
+                <div className={styles.compactDecisionInfo}>
+                  <small>GENERACIÓN AUTOMÁTICA</small>
+                  <span>
+                    Esta orden fue generada automáticamente al aprobar el requerimiento.
+                    {' '}El formato actual del número es provisional hasta que negocio confirme
+                    la estructura definitiva.
+                  </span>
+                </div>
+              ) : selectedOrdenCompra.EstadoOC === 'Generada' ? (
+                <div className={styles.compactDecisionInfo}>
+                  <small>ORDEN REGISTRADA</small>
+                  <span>
+                    El número de orden emitido por el ERP ya fue registrado y el
+                    requerimiento avanzó a Facturación.
+                  </span>
+                </div>
+              ) : (
+                <div className={styles.compactDecisionInfo}>
+                  <small>PENDIENTE DE INGRESAR OC</small>
+                  <span>
+                    Gestiona la orden en el ERP y registra aquí el número
+                    generado. No se genera ningún PDF o comprobante desde esta aplicación.
+                  </span>
+                </div>
+              )}
+            </section>
+
+            {selectedOrdenCompra.TipoOrden === 'SolicitarOC' &&
+              selectedOrdenCompra.EstadoOC !== 'Generada' && (
+              <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
+                <div className={styles.compactDecisionHeading}>
+                  <div>
+                    <span className={styles.eyebrow}>REGISTRO DE ORDEN</span>
+                    <h3>Ingresar orden de compra</h3>
+                  </div>
+                  <span>
+                    Al guardar, la orden cambiará a Generada y el requerimiento
+                    avanzará a Facturación.
+                  </span>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label className={styles.label} htmlFor="numero-oc-erp">
+                    Número de orden de compra
+                  </label>
+                  <input
+                    id="numero-oc-erp"
+                    className={styles.input}
+                    type="text"
+                    value={numeroOCInput}
+                    disabled={procesandoOrdenCompra}
+                    placeholder="Ej. 4500012876"
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                      setNumeroOCInput(event.target.value)
+                    }
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label className={styles.label} htmlFor="observaciones-oc">
+                    Observaciones
+                  </label>
+                  <textarea
+                    id="observaciones-oc"
+                    className={styles.textarea}
+                    rows={3}
+                    value={observacionesOCInput}
+                    disabled={procesandoOrdenCompra}
+                    placeholder="Opcional"
+                    onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      setObservacionesOCInput(event.target.value)
+                    }
+                  />
+                </div>
+
+                <div className={styles.actions}>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    disabled={procesandoOrdenCompra}
+                    onClick={cerrarOrdenCompra}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    disabled={procesandoOrdenCompra || !numeroOCInput.trim()}
+                    onClick={() => { void registrarNumeroOrdenCompra(); }}
+                  >
+                    {procesandoOrdenCompra
+                      ? 'Registrando...'
+                      : 'Registrar OC →'}
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {selectedRequerimiento &&
+              selectedOrdenCompra.EstadoOC === 'Generada' &&
+              (selectedRequerimiento.EtapaActual === 'Facturacion' ||
+                selectedRequerimiento.EtapaActual === 'Finalizado') && (
+              <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
+                <div className={styles.compactDecisionHeading}>
+                  <div>
+                    <span className={styles.eyebrow}>FACTURACIÓN</span>
+                    <h3>Factura asociada a la orden de compra</h3>
+                  </div>
+                  <span>
+                    {selectedRequerimiento.EtapaActual === 'Finalizado'
+                      ? 'La factura ya fue registrada y el requerimiento está finalizado.'
+                      : 'Adjunta el PDF de la factura para cerrar el requerimiento.'}
+                  </span>
+                </div>
+
+                {selectedOrdenCompra.AttachmentFiles?.length > 0 ? (
+                  <div className={styles.readOnlyQuotationField}>
+                    <small>PDF de factura</small>
+                    {selectedOrdenCompra.AttachmentFiles.map((archivo) => (
+                      <div
+                        key={archivo.ServerRelativeUrl}
+                        className={styles.readOnlyPdfChip}
+                      >
+                        <span className={styles.pdfFileIcon} aria-hidden="true">
+                          PDF
+                        </span>
+                        <span
+                          className={styles.pdfFileName}
+                          title={archivo.FileName}
+                        >
+                          {archivo.FileName}
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.previewIconButton}
+                          title="Visualizar factura"
+                          aria-label={`Visualizar ${archivo.FileName}`}
+                          onClick={() => setArchivoPreview(archivo)}
+                        >
+                          Ver PDF
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : selectedRequerimiento.EtapaActual === 'Facturacion' ? (
+                  <div className={styles.formGroup}>
+                    <label className={styles.label} htmlFor="factura-pdf">
+                      PDF de la factura
+                    </label>
+
+                    {facturaPdf ? (
+                      <div className={styles.pdfFileChip}>
+                        <span className={styles.pdfFileIcon} aria-hidden="true">
+                          PDF
+                        </span>
+                        <span
+                          className={styles.pdfFileName}
+                          title={facturaPdf.name}
+                        >
+                          {facturaPdf.name}
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.pdfFileRemove}
+                          disabled={procesandoFactura}
+                          onClick={() => setFacturaPdf(null)}
+                          aria-label="Quitar factura seleccionada"
+                          title="Quitar archivo"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <label className={styles.fileUpload}>
+                        <input
+                          id="factura-pdf"
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          disabled={procesandoFactura}
+                          aria-label="Adjuntar PDF de factura"
+                          onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                            const archivo = event.target.files?.[0] || null;
+
+                            if (archivo) {
+                              const esPdf =
+                                archivo.type === 'application/pdf' ||
+                                /\.pdf$/i.test(archivo.name);
+
+                              if (!esPdf) {
+                                setMessage('La factura debe ser un archivo PDF.');
+                                event.target.value = '';
+                                return;
+                              }
+                            }
+
+                            setMessage('');
+                            setFacturaPdf(archivo);
+                          }}
+                        />
+                        <span className={styles.fileUploadIcon} aria-hidden="true">
+                          ↑
+                        </span>
+                        <span className={styles.fileUploadText}>
+                          Adjuntar factura PDF
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                ) : null}
+
+                {selectedRequerimiento.EtapaActual === 'Facturacion' && (
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      className={styles.primaryButton}
+                      disabled={
+                        procesandoFactura ||
+                        (!selectedOrdenCompra.AttachmentFiles?.length && !facturaPdf)
+                      }
+                      onClick={() => {
+                        registrarFacturaYFinalizar().catch((error: unknown) => {
+                          setMessage(getErrorMessage(error));
+                        });
+                      }}
+                    >
+                      {procesandoFactura
+                        ? 'Procesando...'
+                        : selectedOrdenCompra.AttachmentFiles?.length
+                          ? 'Finalizar requerimiento →'
+                          : 'Guardar factura y finalizar →'}
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {selectedOrdenCompra.Observaciones && (
+              <section className={styles.detailCard}>
+                <div className={styles.compactDescriptionReadOnly}>
+                  <small>Observaciones</small>
+                  <p>{selectedOrdenCompra.Observaciones}</p>
+                </div>
+              </section>
+            )}
+
+            {selectedRequerimiento && (
+              <section className={`${styles.detailCard} ${styles.historyCard}`}>
+                <div className={styles.historyHeader}>
+                  <div>
+                    <span className={styles.eyebrow}>TRAZABILIDAD</span>
+                    <h3>Historial del requerimiento</h3>
+                  </div>
+                  <small>
+                    Solicitud, aprobación y orden de compra en una sola vista.
+                  </small>
+                </div>
+
+                <div className={styles.historyList}>
+                  {getHistoryEvents(selectedRequerimiento)
+                    .slice()
+                    .reverse()
+                    .map((event: IHistoryEvent) => (
+                      <div
+                        key={event.key}
+                        className={styles.historyItem}
+                      >
+                        <div className={styles.historyRail}>
+                          <span className={styles.historyDot} />
+                        </div>
+
+                        <div className={styles.historyContent}>
+                          <div className={styles.historyItemHeader}>
+                            <strong>{event.title}</strong>
+                            <span>{formatDateTime(event.date)}</span>
+                          </div>
+
+                          {event.actor && (
+                            <small>Por {event.actor}</small>
+                          )}
+
+                          {event.detail && (
+                            <p>{event.detail}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </section>
+            )}
+          </div>
+        ) : (
+          <div className={styles.requestsWorkspace}>
+            <div className={styles.listHeaderBand}>
+              <div className={styles.pageIntro}>
+                <div>
+                  <span className={styles.eyebrow}>GESTIÓN OPERATIVA</span>
+                  <h2 className={styles.pageTitle}>Órdenes de compra</h2>
+                </div>
+              </div>
+
+              <div className={styles.kpiGrid}>
+                <div className={styles.kpiCard}>
+                  <span>Total</span>
+                  <strong>{ordenesCompra.length}</strong>
+                </div>
+                <div className={styles.kpiCard}>
+                  <span>Pendientes de ingresar</span>
+                  <strong>
+                    {ordenesCompra.filter(
+                      (orden) =>
+                        orden.TipoOrden === 'SolicitarOC' &&
+                        orden.EstadoOC === 'Pendiente'
+                    ).length}
+                  </strong>
+                </div>
+                <div className={styles.kpiCard}>
+                  <span>Automáticas</span>
+                  <strong>
+                    {ordenesCompra.filter(
+                      (orden) =>
+                        orden.TipoOrden === 'GenerarOC' &&
+                        orden.EstadoOC === 'Generada'
+                    ).length}
+                  </strong>
+                </div>
+                <div className={styles.kpiCard}>
+                  <span>OC registradas</span>
+                  <strong>
+                    {ordenesCompra.filter(
+                      (orden) => orden.EstadoOC === 'Generada'
+                    ).length}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.tableToolbar}>
+              <div className={styles.searchBox}>
+                <span>⌕</span>
+                <input
+                  value={searchTerm}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                    setSearchTerm(event.target.value)
+                  }
+                  placeholder="Buscar por OC, requerimiento, tipo, estado o número..."
+                />
+              </div>
+              <span className={styles.resultCount}>
+                {filteredOrdenesCompra.length} resultados
+              </span>
+            </div>
+
+            <div className={styles.requestsSection}>
+              {loadingOrdenesCompra ? (
+                <div className={styles.emptyState}>
+                  Cargando órdenes de compra...
+                </div>
+              ) : filteredOrdenesCompra.length === 0 ? (
+                <div className={styles.emptyState}>
+                  No tienes órdenes de compra asignadas.
+                </div>
+              ) : (
+                <>
+                  <table className={styles.requestsTable}>
+                    <thead>
+                      <tr>
+                        <th>OC</th>
+                        <th>Requerimiento</th>
+                        <th>Tipo</th>
+                        <th>Estado</th>
+                        <th>Número OC</th>
+                        <th>Fecha</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOrdenesCompra.map((orden: IOrdenCompra) => (
+                        <tr
+                          key={orden.Id}
+                          className={styles.clickableRow}
+                          onClick={() => {
+                            abrirOrdenCompra(orden).catch((error: unknown) => {
+                              setMessage(getErrorMessage(error));
+                            });
+                          }}
+                        >
+                          <td>
+                            <strong>
+                              {orden.Title || `OC #${orden.Id}`}
+                            </strong>
+                          </td>
+
+                          <td>
+                            <strong>
+                              {orden.RequerimientoId
+                                ? `#${orden.RequerimientoId}`
+                                : 'Sin requerimiento'}
+                            </strong>
+                            <br />
+                            <small>
+                              {orden.SolicitadoPor?.Title || 'Sin solicitante'}
+                            </small>
+                          </td>
+
+                          <td>
+                            <div className={styles.tableStatusCell}>
+                              <span className={styles.stageBadge}>
+                                {orden.TipoDocumento || 'Sin tipo'}
+                              </span>
+                              <small className={styles.decisionText}>
+                                {orden.TipoOrden === 'GenerarOC'
+                                  ? 'Automática'
+                                  : 'Ingresar desde ERP'}
+                              </small>
+                            </div>
+                          </td>
+
+                          <td>
+                            <span className={getEstadoClass(
+                              orden.EstadoOC === 'Generada'
+                                ? 'Aprobado'
+                                : orden.EstadoOC === 'Rechazada'
+                                  ? 'Rechazado'
+                                  : 'Enviado Aprobacion'
+                            )}>
+                              {orden.EstadoOC}
+                            </span>
+                          </td>
+
+                          <td>
+                            <strong>
+                              {orden.NumeroOC ||
+                                (orden.TipoOrden === 'SolicitarOC'
+                                  ? 'Pendiente ERP'
+                                  : 'Pendiente')}
+                            </strong>
+                          </td>
+
+                          <td>
+                            {orden.FechaGeneracion
+                              ? new Date(orden.FechaGeneracion).toLocaleDateString('es-EC')
+                              : orden.FechaSolicitud
+                                ? new Date(orden.FechaSolicitud).toLocaleDateString('es-EC')
+                                : 'Sin fecha'}
+                          </td>
+
+                          <td>
+                            <button
+                              type="button"
+                              className={styles.viewButton}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                abrirOrdenCompra(orden).catch((error: unknown) => {
+                                  setMessage(getErrorMessage(error));
+                                });
+                              }}
+                            >
+                              {orden.TipoOrden === 'SolicitarOC' &&
+                                orden.EstadoOC !== 'Generada'
+                                ? 'Ingresar OC →'
+                                : 'Ver expediente →'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className={styles.mobileRequestsList}>
+                    {filteredOrdenesCompra.map((orden: IOrdenCompra) => (
+                      <button
+                        key={`mobile-oc-${orden.Id}`}
+                        type="button"
+                        className={styles.mobileRequestCard}
+                        onClick={() => {
+                            abrirOrdenCompra(orden).catch((error: unknown) => {
+                              setMessage(getErrorMessage(error));
+                            });
+                          }}
+                      >
+                        <div className={styles.mobileRequestCardHeader}>
+                          <div className={styles.mobileRequestIdBlock}>
+                            <strong>
+                              {orden.Title || `OC #${orden.Id}`}
+                            </strong>
+                            <span>
+                              {orden.FechaGeneracion
+                                ? new Date(orden.FechaGeneracion).toLocaleDateString('es-EC')
+                                : orden.FechaSolicitud
+                                  ? new Date(orden.FechaSolicitud).toLocaleDateString('es-EC')
+                                  : 'Sin fecha'}
+                            </span>
+                          </div>
+
+                          <span className={getEstadoClass(
+                            orden.EstadoOC === 'Generada'
+                              ? 'Aprobado'
+                              : orden.EstadoOC === 'Rechazada'
+                                ? 'Rechazado'
+                                : 'Enviado Aprobacion'
+                          )}>
+                            {orden.EstadoOC}
+                          </span>
+                        </div>
+
+                        <div className={styles.mobileRequestDescription}>
+                          {orden.RequerimientoId
+                            ? `Requerimiento #${orden.RequerimientoId}`
+                            : 'Sin requerimiento asociado'}
+                        </div>
+
+                        <div className={styles.mobileRequestMeta}>
+                          <div>
+                            <small>Tipo</small>
+                            <strong>{orden.TipoDocumento || 'Sin tipo'}</strong>
+                          </div>
+                          <div>
+                            <small>Número OC</small>
+                            <strong>
+                              {orden.NumeroOC ||
+                                (orden.TipoOrden === 'SolicitarOC'
+                                  ? 'Pendiente ERP'
+                                  : 'Pendiente')}
+                            </strong>
+                          </div>
+                        </div>
+
+                        <div className={styles.mobileRequestFooter}>
+                          <div className={styles.mobileRequestStage}>
+                            <span className={styles.stageBadge}>
+                              {orden.TipoOrden === 'GenerarOC'
+                                ? 'Automática'
+                                : 'ERP'}
+                            </span>
+                            <small>
+                              {orden.SolicitadoPor?.Title || 'Sin solicitante'}
+                            </small>
+                          </div>
+
+                          <span className={styles.mobileRequestOpen}>
+                            {orden.TipoOrden === 'SolicitarOC' &&
+                              orden.EstadoOC !== 'Generada'
+                              ? 'Ingresar OC →'
+                              : 'Ver expediente →'}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      )}
+
       {/* LISTADO / EXPEDIENTE */}
 
-      {activeView !== 'nueva' && user?.role !== 'SinRol' && (
+      {activeView !== 'nueva' && activeView !== 'ordenes' && user?.role !== 'SinRol' && (
         selectedRequerimiento ? (
           <div className={`${styles.detailWorkspace} ${user?.role === 'Aprobador' ? styles.approverDetail : styles.requesterDetail}`}>
             <div className={styles.detailTopBar}>
               <button
                 type="button"
                 className={styles.backButton}
-                onClick={() => setSelectedRequerimiento(null)}
+                onClick={() => {
+                  setSelectedRequerimiento(null);
+                  setOrdenCompraDetalle(null);
+                  setCotizacionesDetalle([]);
+                  setEtapaConsulta(null);
+                }}
               >
                 ← Solicitudes
               </button>
@@ -2429,6 +4134,38 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 </div>
               )}
 
+              {ordenCompraDetalle &&
+                selectedRequerimiento.Estado === 'Aprobado' && (
+                <div className={styles.compactDecisionInfo}>
+                  <small>ORDEN DE COMPRA</small>
+                  <span>
+                    <strong>
+                      {ordenCompraDetalle.EstadoOC === 'Generada'
+                        ? 'OC registrada'
+                        : 'OC pendiente'}
+                    </strong>
+                    {' · '}
+                    {ordenCompraDetalle.TipoDocumento}
+                    {ordenCompraDetalle.NumeroOC && (
+                      <> · Número: {ordenCompraDetalle.NumeroOC}</>
+                    )}
+                    {ordenCompraDetalle.FechaGeneracion && (
+                      <>
+                        {' · '}
+                        {formatDateTime(ordenCompraDetalle.FechaGeneracion)}
+                      </>
+                    )}
+                    {!ordenCompraDetalle.FechaGeneracion &&
+                      ordenCompraDetalle.ResponsableOC?.Title && (
+                      <>
+                        {' · '}Responsable:{' '}
+                        {ordenCompraDetalle.ResponsableOC.Title}
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
+
               <div className={styles.compactTimeline} aria-label="Etapas del proceso">
                 {getEtapas(selectedRequerimiento).map((etapa, index, etapas) => {
                   const currentIndex = Math.max(
@@ -2510,6 +4247,50 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 );
               })()}
             </section>
+
+            {ordenCompraDetalle && (ordenCompraDetalle.AttachmentFiles?.length ?? 0) > 0 && (
+              <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
+                <div className={styles.compactDecisionHeading}>
+                  <div>
+                    <span className={styles.eyebrow}>FACTURACIÓN</span>
+                    <h3>Factura asociada</h3>
+                  </div>
+                  <span>
+                    Documento asociado a la orden de compra{' '}
+                    {ordenCompraDetalle.NumeroOC || ''}.
+                  </span>
+                </div>
+
+                <div className={styles.readOnlyQuotationField}>
+                  <small>PDF de factura</small>
+                  {(ordenCompraDetalle.AttachmentFiles || []).map((archivo) => (
+                    <div
+                      key={archivo.ServerRelativeUrl}
+                      className={styles.readOnlyPdfChip}
+                    >
+                      <span className={styles.pdfFileIcon} aria-hidden="true">
+                        PDF
+                      </span>
+                      <span
+                        className={styles.pdfFileName}
+                        title={archivo.FileName}
+                      >
+                        {archivo.FileName}
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.previewIconButton}
+                        title="Visualizar factura"
+                        aria-label={`Visualizar ${archivo.FileName}`}
+                        onClick={() => setArchivoPreview(archivo)}
+                      >
+                        Ver PDF
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <section className={`${styles.formSection} ${styles.detailQuotationsSection}`}>
               <div className={`${styles.sectionHeaderRow} ${styles.compactQuotationHeader}`}>
@@ -2786,68 +4567,130 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
               ) : filteredRequerimientos.length === 0 ? (
                 <div className={styles.emptyState}>No existen solicitudes para mostrar.</div>
               ) : (
-                <table className={styles.requestsTable}>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Requerimiento</th>
-                      <th>Categoría</th>
-                      <th>Valor</th>
-                      <th>Seguimiento</th>
-                      <th>Fecha</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRequerimientos.map((requerimiento: IRequerimientoItem) => (
-                      <tr key={requerimiento.Id} className={styles.clickableRow} onClick={() => abrirRequerimiento(requerimiento)}>
-                        <td><strong>#{requerimiento.Id}</strong></td>
-                        <td>
-                          <div className={styles.requestTitle}>{requerimiento.Descripcion}</div>
-                          <small>{requerimiento.Solicitante?.Title || 'Sin solicitante'}</small>
-                        </td>
-                        <td>{getCategoriaNombre(requerimiento.CategoriaId)}</td>
-                        <td>
-                          <strong>
-                            {formatCurrency(
-                              requerimiento.Estado === 'Aprobado'
-                                ? requerimiento.ValorTotal
-                                : (requerimiento.ValorPromedio ?? requerimiento.ValorTotal ?? 0)
-                            )}
-                          </strong>
-                        </td>
-                        <td>
-                          <div className={styles.tableStatusCell}>
-                            <span className={styles.stageBadge}>{getEtapaLabel(requerimiento.EtapaActual)}</span>
-                            <span className={getEstadoClass(requerimiento.Estado)}>{requerimiento.Estado}</span>
-                            <small className={styles.decisionText}>
-                              {requerimiento.Estado === 'Aprobado' && requerimiento.DecisionPor
-                                ? `Por ${requerimiento.DecisionPor.Title}`
-                                : requerimiento.Estado === 'Rechazado' && requerimiento.DecisionPor
-                                  ? `Por ${requerimiento.DecisionPor.Title}`
-                                  : requerimiento.Estado === 'Enviado Aprobacion'
-                                    ? 'Pendiente de decisión'
-                                    : 'Sin enviar'}
-                            </small>
-                          </div>
-                        </td>
-                        <td>
-                          {new Date(
-                            (requerimiento.Estado === 'Aprobado' || requerimiento.Estado === 'Rechazado') &&
-                            (requerimiento.FechaDecision || requerimiento.FechaAprobacion)
-                              ? (requerimiento.FechaDecision || requerimiento.FechaAprobacion || requerimiento.Created)
-                              : requerimiento.Created
-                          ).toLocaleDateString('es-EC')}
-                        </td>
-                        <td>
-                          <button type="button" className={styles.viewButton} onClick={(e) => { e.stopPropagation(); abrirRequerimiento(requerimiento); }}>
-                            Ver →
-                          </button>
-                        </td>
+                <>
+                  <table className={styles.requestsTable}>
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Requerimiento</th>
+                        <th>Categoría</th>
+                        <th>Valor</th>
+                        <th>Seguimiento</th>
+                        <th>Fecha</th>
+                        <th />
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredRequerimientos.map((requerimiento: IRequerimientoItem) => (
+                        <tr key={requerimiento.Id} className={styles.clickableRow} onClick={() => abrirRequerimiento(requerimiento)}>
+                          <td><strong>#{requerimiento.Id}</strong></td>
+                          <td>
+                            <div className={styles.requestTitle}>{requerimiento.Descripcion}</div>
+                            <small>{requerimiento.Solicitante?.Title || 'Sin solicitante'}</small>
+                          </td>
+                          <td>{getCategoriaNombre(requerimiento.CategoriaId)}</td>
+                          <td>
+                            <strong>
+                              {formatCurrency(
+                                requerimiento.Estado === 'Aprobado'
+                                  ? requerimiento.ValorTotal
+                                  : (requerimiento.ValorPromedio ?? requerimiento.ValorTotal ?? 0)
+                              )}
+                            </strong>
+                          </td>
+                          <td>
+                            <div className={styles.tableStatusCell}>
+                              <span className={styles.stageBadge}>{getEtapaLabel(requerimiento.EtapaActual)}</span>
+                              <span className={getEstadoClass(requerimiento.Estado)}>{requerimiento.Estado}</span>
+                              <small className={styles.decisionText}>
+                                {requerimiento.Estado === 'Aprobado' && requerimiento.DecisionPor
+                                  ? `Por ${requerimiento.DecisionPor.Title}`
+                                  : requerimiento.Estado === 'Rechazado' && requerimiento.DecisionPor
+                                    ? `Por ${requerimiento.DecisionPor.Title}`
+                                    : requerimiento.Estado === 'Enviado Aprobacion'
+                                      ? 'Pendiente de decisión'
+                                      : 'Sin enviar'}
+                              </small>
+                            </div>
+                          </td>
+                          <td>
+                            {new Date(
+                              (requerimiento.Estado === 'Aprobado' || requerimiento.Estado === 'Rechazado') &&
+                              (requerimiento.FechaDecision || requerimiento.FechaAprobacion)
+                                ? (requerimiento.FechaDecision || requerimiento.FechaAprobacion || requerimiento.Created)
+                                : requerimiento.Created
+                            ).toLocaleDateString('es-EC')}
+                          </td>
+                          <td>
+                            <button type="button" className={styles.viewButton} onClick={(e) => { e.stopPropagation(); abrirRequerimiento(requerimiento); }}>
+                              Ver →
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className={styles.mobileRequestsList}>
+                    {filteredRequerimientos.map((requerimiento: IRequerimientoItem) => {
+                      const fechaVisible =
+                        (requerimiento.Estado === 'Aprobado' || requerimiento.Estado === 'Rechazado') &&
+                        (requerimiento.FechaDecision || requerimiento.FechaAprobacion)
+                          ? (requerimiento.FechaDecision || requerimiento.FechaAprobacion || requerimiento.Created)
+                          : requerimiento.Created;
+
+                      const valorVisible =
+                        requerimiento.Estado === 'Aprobado'
+                          ? requerimiento.ValorTotal
+                          : (requerimiento.ValorPromedio ?? requerimiento.ValorTotal ?? 0);
+
+                      return (
+                        <button
+                          key={`mobile-${requerimiento.Id}`}
+                          type="button"
+                          className={styles.mobileRequestCard}
+                          onClick={() => abrirRequerimiento(requerimiento)}
+                          aria-label={`Abrir requerimiento ${requerimiento.Id}`}
+                        >
+                          <div className={styles.mobileRequestCardHeader}>
+                            <div className={styles.mobileRequestIdBlock}>
+                              <strong>#{requerimiento.Id}</strong>
+                              <span>{new Date(fechaVisible).toLocaleDateString('es-EC')}</span>
+                            </div>
+                            <span className={getEstadoClass(requerimiento.Estado)}>
+                              {requerimiento.Estado}
+                            </span>
+                          </div>
+
+                          <div className={styles.mobileRequestDescription}>
+                            {requerimiento.Descripcion}
+                          </div>
+
+                          <div className={styles.mobileRequestMeta}>
+                            <div>
+                              <small>Categoría</small>
+                              <strong>{getCategoriaNombre(requerimiento.CategoriaId)}</strong>
+                            </div>
+                            <div>
+                              <small>Valor</small>
+                              <strong>{formatCurrency(valorVisible)}</strong>
+                            </div>
+                          </div>
+
+                          <div className={styles.mobileRequestFooter}>
+                            <div className={styles.mobileRequestStage}>
+                              <span className={styles.stageBadge}>
+                                {getEtapaLabel(requerimiento.EtapaActual)}
+                              </span>
+                              <small>{requerimiento.Solicitante?.Title || 'Sin solicitante'}</small>
+                            </div>
+                            <span className={styles.mobileRequestOpen}>Ver detalle →</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           </div>
