@@ -442,6 +442,67 @@
 .requestsTable th:nth-child(5), .requestsTable td:nth-child(5) { width: 215px; }
 .requestsTable th:nth-child(6), .requestsTable td:nth-child(6) { width: 85px; }
 .requestsTable th:nth-child(7), .requestsTable td:nth-child(7) { width: 60px; }
+
+/* Tabla específica de Órdenes de Compra.
+   Evita que la acción se salga de la fila y reparte el ancho de forma proporcional. */
+.ordersTable {
+  min-width: 960px;
+}
+
+.ordersTable th,
+.ordersTable td {
+  box-sizing: border-box;
+}
+
+.ordersTable th:nth-child(1),
+.ordersTable td:nth-child(1) {
+  width: 16%;
+}
+
+.ordersTable th:nth-child(2),
+.ordersTable td:nth-child(2) {
+  width: 19%;
+}
+
+.ordersTable th:nth-child(3),
+.ordersTable td:nth-child(3) {
+  width: 14%;
+}
+
+.ordersTable th:nth-child(4),
+.ordersTable td:nth-child(4) {
+  width: 11%;
+}
+
+.ordersTable th:nth-child(5),
+.ordersTable td:nth-child(5) {
+  width: 14%;
+}
+
+.ordersTable th:nth-child(6),
+.ordersTable td:nth-child(6) {
+  width: 11%;
+}
+
+.ordersTable th:nth-child(7),
+.ordersTable td:nth-child(7) {
+  width: 15%;
+  text-align: right;
+}
+
+.ordersTable td:nth-child(7) {
+  white-space: nowrap;
+}
+
+.ordersTable td:nth-child(7) .viewButton {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 150px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
 .clickableRow { cursor: pointer; transition: background-color req.$motion; }
 .clickableRow:hover { background: #f8fbfd; }
 .requestTitle { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #26384a; font-weight: 750; }
@@ -891,6 +952,10 @@
 
 @media (max-width: 900px) {
   .requerimientos { padding: 12px 14px 22px; }
+
+  .ordersTable {
+    min-width: 920px;
+  }
   .quotationList,
   .approvalQuotationGrid,
   .detailQuotationSkeletonGrid { grid-template-columns: repeat(2,minmax(0,1fr)); }
@@ -1974,3 +2039,600 @@
   }
 }
 
+
+
+/* ===== Expediente unificado para todos los roles ===== */
+
+.detailStatusGroup {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.topProcessTimeline {
+  margin: 0 0 9px;
+  padding: 10px 12px 8px;
+  border: 1px solid #e3eaf0;
+  border-radius: 10px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+
+
+
+
+
+
+
+
+.historyItemHeader {
+  display: block !important;
+  text-align: left !important;
+}
+
+.historyItemHeader span {
+  display: none !important;
+}
+
+.historyDate {
+  display: inline-flex;
+  align-self: flex-start;
+  margin: 3px 0 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: var(--ui-font-micro);
+  font-weight: 750;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.traceabilityDocumentsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.traceabilityDocumentsGrid > .historyCard,
+.documentsCard {
+  height: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.documentsCard {
+  padding: var(--ui-card-pad);
+}
+
+.documentsList {
+  display: grid;
+  gap: 8px;
+}
+
+.documentGroup {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #e7edf3;
+  border-radius: 8px;
+  background: #fafcfe;
+}
+
+.documentGroupHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.documentGroupHeader strong {
+  color: #334155;
+  font-size: var(--ui-font-sm);
+}
+
+.documentGroupHeader small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: var(--ui-font-micro);
+}
+
+.documentRow {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  text-align: left;
+  cursor: pointer;
+}
+
+.documentRow:hover {
+  border-color: #b8c7d5;
+  background: #f8fbfd;
+}
+
+.documentRow > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ui-font-xs);
+}
+
+.documentRow > strong {
+  color: #0b5d9b;
+  font-size: var(--ui-font-micro);
+}
+
+.invoiceUploadCompact {
+  display: grid;
+  gap: 7px;
+}
+
+.invoiceUploadCompact .primaryButton {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .traceabilityDocumentsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .detailStatusGroup {
+    justify-content: flex-start;
+  }
+
+
+  .topProcessTimeline {
+    overflow-x: auto;
+  }
+}
+
+
+/* Duración de requerimientos recurrentes */
+.recurrenceConfig {
+  margin-top: 7px;
+  padding: 8px 9px;
+  border: 1px solid #dbe4ec;
+  border-radius: 8px;
+  background: #f8fbfd;
+}
+
+.recurrenceInputRow {
+  display: grid;
+  grid-template-columns: minmax(82px, 110px) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.recurrenceInputRow span {
+  color: #475569;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.recurrenceConfig > small {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+
+/* ===== Nueva solicitud: fila superior dinámica ===== */
+
+.requestFormLayout {
+  display: grid;
+  gap: 10px;
+}
+
+.requestPrimaryRow {
+  display: grid;
+  align-items: end;
+  gap: 10px;
+  margin-inline: auto;
+  width: 100%;
+  transition:
+    grid-template-columns 220ms ease,
+    max-width 220ms ease;
+}
+
+.requestPrimaryRowSimple {
+  grid-template-columns:
+    minmax(240px, 360px)
+    minmax(320px, 420px)
+    minmax(0, 0fr);
+  max-width: 800px;
+}
+
+.requestPrimaryRowRecurring {
+  grid-template-columns:
+    minmax(220px, 1fr)
+    minmax(300px, 1.1fr)
+    minmax(190px, .72fr);
+  max-width: 1040px;
+}
+
+.recurrenceSlot {
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(14px);
+  pointer-events: none;
+  transition:
+    opacity 180ms ease,
+    transform 220ms ease,
+    visibility 0s linear 220ms;
+}
+
+.recurrenceSlotVisible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  pointer-events: auto;
+  transition:
+    opacity 180ms ease 40ms,
+    transform 220ms ease,
+    visibility 0s linear 0s;
+}
+
+.recurrenceInputRow {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.recurrenceInputRow span {
+  color: #475569;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.recurrenceSlot > small {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.requestFormLayout .compactDescription {
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+.requestFormLayout .compactDescription .textarea {
+  width: 100%;
+  min-height: 58px;
+  height: auto;
+  max-height: 110px;
+}
+
+@media (max-width: 900px) {
+  .requestPrimaryRow,
+  .requestPrimaryRowSimple,
+  .requestPrimaryRowRecurring {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+
+  .recurrenceSlot {
+    max-height: 0;
+    transform: translateY(-6px);
+  }
+
+  .recurrenceSlotVisible {
+    max-height: 120px;
+    transform: translateY(0);
+  }
+}
+
+
+/* ===== Ajuste fino fila Categoría / Tipo / Duración ===== */
+
+.requestPrimaryRow {
+  align-items: start;
+  gap: 12px;
+}
+
+.requestPrimaryRowSimple {
+  grid-template-columns:
+    minmax(250px, 1fr)
+    minmax(330px, 1.15fr)
+    minmax(0, 0fr);
+  max-width: 760px;
+}
+
+.requestPrimaryRowRecurring {
+  grid-template-columns:
+    minmax(230px, 1fr)
+    minmax(310px, 1.15fr)
+    minmax(180px, .72fr);
+  max-width: 900px;
+}
+
+.requestPrimaryRow > .formGroup,
+.recurrenceSlot {
+  min-width: 0;
+  align-self: start;
+}
+
+.recurrenceSlot {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0;
+}
+
+.recurrenceSlot .label {
+  margin-bottom: 5px;
+}
+
+.recurrenceInputRow {
+  min-height: 34px;
+}
+
+.recurrenceInputRow .input {
+  height: 34px;
+  box-sizing: border-box;
+}
+
+.requestPrimaryRow .select {
+  min-height: 34px;
+  height: 34px;
+  box-sizing: border-box;
+}
+
+.requestPrimaryRow .compactProcessOptions {
+  min-height: 34px;
+}
+
+.requestPrimaryRow .compactProcessOption {
+  min-height: 34px;
+}
+
+.recurrenceSlot > small {
+  margin-top: 5px;
+  max-width: 220px;
+}
+
+.requestFormLayout .compactDescription {
+  margin-top: 1px;
+}
+
+/* El input ya representa el total; no se necesita un segundo resumen debajo. */
+.quotationCard .quotationBody {
+  padding-bottom: 10px;
+}
+
+@media (max-width: 900px) {
+  .requestPrimaryRow,
+  .requestPrimaryRowSimple,
+  .requestPrimaryRowRecurring {
+    gap: 9px;
+  }
+
+  .recurrenceSlot > small {
+    max-width: none;
+  }
+}
+
+
+/* Mini celda para identificar el requerimiento dentro del resumen */
+.requestIdMiniField {
+  max-width: 120px;
+}
+
+.requestIdMiniField strong {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+
+/* ==========================================================================
+   EXPEDIENTE — 6 METADATOS EN UNA SOLA FILA
+   Solo presentación. No modifica estructura ni funcionalidad.
+   ========================================================================== */
+.unifiedRequestCard .readOnlyFieldsGrid {
+  display: grid;
+  grid-template-columns:
+    minmax(0, .58fr)   /* Requerimiento */
+    minmax(0, .72fr)   /* Área */
+    minmax(0, 1.28fr)  /* Categoría */
+    minmax(0, 1.55fr)  /* Tipo de proceso */
+    minmax(0, 1.08fr)  /* Solicitado por */
+    minmax(0, .90fr);  /* Fecha de solicitud */
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+
+.unifiedRequestCard .readOnlyField {
+  min-width: 0;
+  width: auto;
+  max-width: none;
+  min-height: 42px;
+  padding: 5px 6px;
+}
+
+.unifiedRequestCard .requestIdMiniField {
+  width: auto;
+  max-width: none;
+  min-width: 0;
+}
+
+.unifiedRequestCard .readOnlyField small,
+.unifiedRequestCard .readOnlyField strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unifiedRequestCard .readOnlyField small {
+  font-size: var(--ui-font-micro);
+  letter-spacing: .2px;
+}
+
+.unifiedRequestCard .readOnlyField strong {
+  margin-top: 1px;
+  font-size: var(--ui-font-xs);
+}
+
+/* Mantener las seis columnas incluso cuando las reglas responsive generales
+   intenten convertir readOnlyFieldsGrid en 3, 2 o 1 columnas. */
+@media (max-width: 1120px) {
+  .unifiedRequestCard .readOnlyFieldsGrid {
+    grid-template-columns:
+      minmax(0, .58fr)
+      minmax(0, .72fr)
+      minmax(0, 1.28fr)
+      minmax(0, 1.55fr)
+      minmax(0, 1.08fr)
+      minmax(0, .90fr);
+    gap: 4px;
+  }
+
+  .unifiedRequestCard .readOnlyField {
+    padding: 4px 5px;
+  }
+}
+
+
+/* ==========================================================================
+   INFORMACIÓN DINÁMICA DE ETAPA
+   Cada etapa muestra solo datos propios, sin repetir los metadatos generales.
+   ========================================================================== */
+
+.stageDataSection {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid req.$border-soft;
+}
+
+.stageDataHeading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.stageDataHeading small {
+  color: req.$subtle;
+  font-size: var(--ui-font-micro);
+  font-weight: 800;
+  letter-spacing: .3px;
+}
+
+.stageDataHeading strong {
+  color: req.$navy;
+  font-size: var(--ui-font-xs);
+}
+
+.stageDataGrid {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+
+.stageDataField {
+  min-width: 0;
+  min-height: 42px;
+  padding: 5px 6px;
+  box-sizing: border-box;
+  border: 1px solid req.$border-soft;
+  border-radius: 7px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.stageDataField small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: req.$subtle;
+  font-size: var(--ui-font-micro);
+  font-weight: 800;
+  letter-spacing: .2px;
+  text-transform: uppercase;
+}
+
+.stageDataField strong {
+  min-width: 0;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+  font-size: var(--ui-font-xs);
+  font-weight: 750;
+}
+
+@media (max-width: 900px) {
+  .stageDataGrid {
+    overflow-x: auto;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(150px, 1fr);
+    grid-template-columns: none !important;
+    padding-bottom: 2px;
+  }
+
+  .stageDataField {
+    min-width: 150px;
+  }
+}
+
+
+/* ===== Jerarquía visual del expediente ===== */
+
+.sectionMiniHeading {
+  display: flex;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.sectionMiniHeading .eyebrow {
+  margin: 0;
+}
+
+.stageDataSection {
+  margin-top: 0;
+  padding: 9px 10px;
+  border: 1px solid req.$border-soft;
+  border-radius: 10px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.stageDataHeading {
+  margin-bottom: 6px;
+}
+
+.unifiedRequestCard .compactDescriptionReadOnly {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid #eef2f6;
+}

@@ -14,6 +14,7 @@ type UserRole =
   | 'Solicitador'
   | 'Aprobador'
   | 'ResponsableOC'
+  | 'Contador'
   | 'SinRol';
 
 type AppView =
@@ -143,6 +144,7 @@ interface IRequerimientoItem {
   ValorTotal?: number | null;
   Estado: string;
   Recurrente: boolean;
+  MesesRecurrencia?: number | null;
   Created: string;
   EtapaActual?: string;
   FechaAprobacion?: string;
@@ -196,6 +198,7 @@ interface IOrdenCompra {
   NumeroOC?: string | null;
   FechaSolicitud?: string;
   FechaGeneracion?: string | null;
+  FechaAprobacion?: string | null;
   Modified?: string;
   Observaciones?: string | null;
   AttachmentFiles: IAdjuntoCotizacion[];
@@ -220,12 +223,14 @@ interface IHistoryEvent {
   detail?: string;
 }
 
+interface IStageField {
+  label: string;
+  value: string;
+}
+
 interface IStageInspection {
   title: string;
-  status: string;
-  date?: string;
-  actor?: string;
-  details: string[];
+  fields: IStageField[];
 }
 
 const Requerimientos: React.FC<IRequerimientosProps> = ({
@@ -365,6 +370,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
   const [recurrente, setRecurrente] =
     useState<boolean>(false);
+
+  const [mesesRecurrencia, setMesesRecurrencia] =
+    useState<string>('');
 
   const createEmptyCotizacion = (): ICotizacionForm => ({
     key: `${Date.now()}-${Math.random()}`,
@@ -529,6 +537,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             role = 'Solicitador';
           } else if (nombreRol === 'responsableoc') {
             role = 'ResponsableOC';
+          } else if (nombreRol === 'contador') {
+            role = 'Contador';
           }
         }
       }
@@ -617,14 +627,17 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
    */
 
   const loadOrdenesCompra = async (
-    responsableOCId: number
+    responsableOCId: number,
+    loadAll: boolean = false
   ): Promise<void> => {
     try {
       setLoadingOrdenesCompra(true);
       setMessage('');
 
       const filter = encodeURIComponent(
-        `ResponsableOCId eq ${responsableOCId} and Activo eq 1`
+        loadAll
+          ? `Activo eq 1`
+          : `ResponsableOCId eq ${responsableOCId} and Activo eq 1`
       );
 
       const ordenesUrl =
@@ -658,10 +671,74 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       }
 
       const data = await response.json();
-      const ordenes = (data.value || []).map((orden: IOrdenCompra) => ({
-        ...orden,
-        AttachmentFiles: orden.AttachmentFiles || []
-      })) as IOrdenCompra[];
+
+      const requerimientosFechaUrl =
+        `${context.pageContext.web.absoluteUrl}` +
+        `/_api/web/lists/getbytitle('Requerimientos')/items` +
+        `?$select=Id,FechaAprobacion` +
+        `&$filter=${encodeURIComponent(`FechaAprobacion ne null`)}` +
+        `&$top=500`;
+
+      const requerimientosFechaResponse =
+        await context.spHttpClient.get(
+          requerimientosFechaUrl,
+          SPHttpClient.configurations.v1,
+          {
+            headers: {
+              Accept: 'application/json;odata=nometadata'
+            }
+          }
+        );
+
+      if (!requerimientosFechaResponse.ok) {
+        throw new Error(
+          `Error cargando fechas de aprobación. HTTP ${requerimientosFechaResponse.status}: ` +
+          `${await requerimientosFechaResponse.text()}`
+        );
+      }
+
+      const requerimientosFechaData =
+        await requerimientosFechaResponse.json();
+
+      const fechasAprobacionPorRequerimiento: Record<number, string> = {};
+
+      (requerimientosFechaData.value || []).forEach(
+        (requerimiento: {
+          Id: number;
+          FechaAprobacion?: string | null;
+        }) => {
+          if (requerimiento.FechaAprobacion) {
+            fechasAprobacionPorRequerimiento[requerimiento.Id] =
+              requerimiento.FechaAprobacion;
+          }
+        }
+      );
+
+      const ordenes = (data.value || []).map(
+        (orden: IOrdenCompra): IOrdenCompra => ({
+          ...orden,
+          FechaAprobacion:
+            orden.RequerimientoId
+              ? fechasAprobacionPorRequerimiento[orden.RequerimientoId] || null
+              : null,
+          AttachmentFiles: orden.AttachmentFiles || []
+        })
+      );
+
+      ordenes.sort((a: IOrdenCompra, b: IOrdenCompra) => {
+        const fechaA =
+          a.FechaAprobacion
+            ? new Date(a.FechaAprobacion).getTime()
+            : 0;
+
+        const fechaB =
+          b.FechaAprobacion
+            ? new Date(b.FechaAprobacion).getTime()
+            : 0;
+
+        return fechaB - fechaA;
+      });
+
       setOrdenesCompra(ordenes);
     } catch (error) {
       console.error('Error cargando órdenes de compra:', error);
@@ -776,7 +853,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           `/_api/web/lists/getbytitle('Requerimientos')/items` +
           `?$select=` +
           `Id,Title,Descripcion,Area,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
-          `Recurrente,Created,EtapaActual,FechaAprobacion,FechaEnvioAprobacion,FechaDecision,ComentarioAprobador,` +
+          `Recurrente,MesesRecurrencia,Created,EtapaActual,FechaAprobacion,FechaEnvioAprobacion,FechaDecision,ComentarioAprobador,` +
           `Aprobador/Id,Aprobador/Title,Aprobador/EMail,` +
           `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
           `Solicitante/Id,Solicitante/Title,Solicitante/EMail` +
@@ -923,7 +1000,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       `/_api/web/lists/getbytitle('Requerimientos')/items(${requerimientoId})` +
       `?$select=` +
       `Id,Title,Descripcion,Area,CategoriaId,AprobadorId,ValorPromedio,ValorTotal,Estado,` +
-      `Recurrente,Created,EtapaActual,FechaAprobacion,FechaEnvioAprobacion,FechaDecision,ComentarioAprobador,` +
+      `Recurrente,MesesRecurrencia,Created,EtapaActual,FechaAprobacion,FechaEnvioAprobacion,FechaDecision,ComentarioAprobador,` +
       `Aprobador/Id,Aprobador/Title,Aprobador/EMail,` +
       `DecisionPor/Id,DecisionPor/Title,DecisionPor/EMail,` +
       `Solicitante/Id,Solicitante/Title,Solicitante/EMail` +
@@ -1030,7 +1107,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             userConfig.areaId,
             userRole === 'Admin' ||
               userRole === 'Aprobador' ||
-              userRole === 'ResponsableOC'
+              userRole === 'ResponsableOC' ||
+              userRole === 'Contador'
           );
 
 
@@ -1160,7 +1238,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             );
 
           } else if (
-            userRole === 'ResponsableOC'
+            userRole === 'ResponsableOC' ||
+            userRole === 'Contador'
           ) {
 
             setActiveView(
@@ -1168,7 +1247,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             );
 
             await loadOrdenesCompra(
-              currentUser.Id
+              currentUser.Id,
+              userRole === 'Contador'
             );
 
           } else {
@@ -1232,7 +1312,10 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       }
 
       if (view === 'ordenes') {
-        void loadOrdenesCompra(user.id);
+        void loadOrdenesCompra(
+          user.id,
+          user.role === 'Contador'
+        );
         return;
       }
 
@@ -1262,6 +1345,21 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+
+  const formatHistoryDate = (value?: string): string => {
+    if (!value) {
+      return 'Fecha no registrada';
+    }
+
+    return new Date(value)
+      .toLocaleDateString('es-EC', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      })
+      .replace(/\./g, '');
   };
 
 
@@ -1666,7 +1764,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         aprobar
           ? requerimientoActual.Recurrente
             ? `Requerimiento #${requerimientoId} aprobado. OC generada; continúa en Facturación.`
-            : `Requerimiento #${requerimientoId} aprobado. OC pendiente de gestión en ERP.`
+            : `Requerimiento #${requerimientoId} aprobado correctamente. La OC continúa con gestión en ERP.`
           : `Requerimiento #${requerimientoId} rechazado correctamente.`
       );
     } catch (error) {
@@ -1687,7 +1785,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       Aprobacion: 'Aprobación',
       GenerarOC: 'Orden de compra',
       SolicitarOC:
-        user?.role === 'ResponsableOC'
+        user?.role === 'ResponsableOC' ||
+        user?.role === 'Contador'
           ? 'Ingresar orden de compra'
           : 'Orden de compra',
       Facturacion: 'Facturación',
@@ -1864,19 +1963,23 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     const selectedQuotation = getSelectedQuotation();
 
     if (etapa === 'Solicitud') {
+      const fields: IStageField[] = [
+        {
+          label: 'Estado de solicitud',
+          value:
+            item.Estado === 'Borrador'
+              ? 'Borrador'
+              : 'Completada'
+        },
+        {
+          label: 'Cotizaciones',
+          value: `${cotizacionesDetalle.length} registradas`
+        },
+      ];
+
       return {
         title: 'Solicitud',
-        status:
-          item.Estado === 'Borrador'
-            ? 'Borrador'
-            : 'Completada',
-        date: item.Created,
-        actor: item.Solicitante?.Title || 'Solicitante',
-        details: [
-          `Categoría: ${getCategoriaNombre(item.CategoriaId)}`,
-          `Tipo: ${item.Recurrente ? 'Recurrente' : 'No recurrente'}`,
-          `Valor promedio: ${formatCurrency(item.ValorPromedio ?? item.ValorTotal ?? 0)}`
-        ]
+        fields
       };
     }
 
@@ -1885,36 +1988,66 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         item.Estado === 'Aprobado' ||
         item.Estado === 'Rechazado';
 
-      const details: string[] = [
-        item.Aprobador?.Title
-          ? `Aprobador asignado: ${item.Aprobador.Title}`
-          : 'Aprobador asignado según categoría.'
+      const fields: IStageField[] = [
+        {
+          label: 'Estado de decisión',
+          value: decisionMade
+            ? item.Estado
+            : item.Estado === 'Borrador'
+              ? 'No iniciada'
+              : 'Pendiente de decisión'
+        },
+        {
+          label: 'Aprobador',
+          value:
+            item.Aprobador?.Title ||
+            'Sin asignar'
+        }
       ];
 
-      if (decisionMade && selectedQuotation && item.Estado === 'Aprobado') {
-        details.push(
-          `Cotización aprobada: ${selectedQuotation.CodigoCotizacionInterno || selectedQuotation.Title} · ${formatCurrency(selectedQuotation.ValorTotal)}`
-        );
+      if (item.FechaEnvioAprobacion) {
+        fields.push({
+          label: 'Enviado a aprobación',
+          value: formatHistoryDate(
+            item.FechaEnvioAprobacion
+          )
+        });
+      }
+
+      if (decisionMade) {
+        fields.push({
+          label: 'Fecha de decisión',
+          value: formatHistoryDate(
+            item.FechaDecision ||
+            item.FechaAprobacion
+          )
+        });
+      }
+
+      if (
+        decisionMade &&
+        item.Estado === 'Aprobado' &&
+        selectedQuotation
+      ) {
+        fields.push({
+          label: 'Cotización ganadora',
+          value:
+            `${selectedQuotation.CodigoCotizacionInterno ||
+              selectedQuotation.Title} · ` +
+            `${formatCurrency(selectedQuotation.ValorTotal)}`
+        });
       }
 
       if (item.ComentarioAprobador) {
-        details.push(`Comentario: ${item.ComentarioAprobador}`);
+        fields.push({
+          label: 'Comentario',
+          value: item.ComentarioAprobador
+        });
       }
 
       return {
         title: 'Aprobación',
-        status: decisionMade
-          ? item.Estado
-          : item.Estado === 'Borrador'
-            ? 'No iniciada'
-            : 'Pendiente de decisión',
-        date: decisionMade
-          ? (item.FechaDecision || item.FechaAprobacion)
-          : item.FechaEnvioAprobacion,
-        actor: decisionMade
-          ? (item.DecisionPor?.Title || item.Aprobador?.Title)
-          : item.Aprobador?.Title,
-        details
+        fields
       };
     }
 
@@ -1926,124 +2059,150 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
       if (!orden) {
         return {
-          title: getEtapaLabel(etapa),
-          status: 'Sin información',
-          date:
-            item.FechaDecision ||
-            item.FechaAprobacion,
-          actor: 'Proceso operativo',
-          details: [
-            'Orden de compra aún no registrada.'
-          ]
-        };
-      }
-
-      if (orden.TipoOrden === 'GenerarOC') {
-        const details: string[] = [];
-
-        if (orden.NumeroOC) {
-          details.push(`Número OC: ${orden.NumeroOC}`);
-        }
-
-        if (orden.TipoDocumento) {
-          details.push(`Tipo: ${orden.TipoDocumento}`);
-        }
-
-        return {
           title: 'Orden de compra',
-          status:
-            orden.EstadoOC === 'Generada'
-              ? 'Generada'
-              : orden.EstadoOC,
-          date:
-            orden.FechaGeneracion ||
-            orden.FechaSolicitud,
-          actor: 'Sistema',
-          details
+          fields: [
+            {
+              label: 'Estado OC',
+              value: 'Sin información'
+            }
+          ]
         };
       }
 
       const responsable =
         orden.ResponsableOC?.Title ||
-        'Responsable de orden de compra';
+        'Sin responsable';
 
-      const details: string[] = [];
+      const fields: IStageField[] = [
+        {
+          label: 'Estado OC',
+          value:
+            orden.EstadoOC === 'Generada'
+              ? 'Generada'
+              : orden.EstadoOC === 'En proceso'
+                ? 'En gestión'
+                : 'Pendiente'
+        },
+        {
+          label: 'Gestión',
+          value:
+            orden.TipoOrden === 'GenerarOC'
+              ? 'Generación automática'
+              : 'Registro desde ERP'
+        },
+        {
+          label: 'Responsable OC',
+          value: responsable
+        }
+      ];
 
-      if (orden.EstadoOC === 'Generada' && orden.NumeroOC) {
-        details.push(`Número OC: ${orden.NumeroOC}`);
-        details.push('Registrada en ERP.');
-      } else {
-        details.push('Pendiente de registrar el número emitido por el ERP.');
+      if (orden.NumeroOC) {
+        fields.push({
+          label: 'Número OC',
+          value: orden.NumeroOC
+        });
       }
 
-      details.push(`Responsable: ${responsable}`);
+      if (
+        orden.TipoOrden !== 'GenerarOC' &&
+        orden.FechaSolicitud
+      ) {
+        fields.push({
+          label: 'Solicitud OC',
+          value: formatHistoryDate(
+            orden.FechaSolicitud
+          )
+        });
+      }
 
-      if (orden.Observaciones) {
-        details.push(`Observaciones: ${orden.Observaciones}`);
+      if (orden.FechaGeneracion) {
+        fields.push({
+          label:
+            orden.TipoOrden === 'GenerarOC'
+              ? 'Generación OC'
+              : 'Registro OC',
+          value: formatHistoryDate(
+            orden.FechaGeneracion
+          )
+        });
       }
 
       return {
-        title:
-          user?.role === 'ResponsableOC'
-            ? 'Ingresar orden de compra'
-            : 'Orden de compra',
-        status:
-          orden.EstadoOC === 'Generada'
-            ? 'OC registrada'
-            : orden.EstadoOC === 'En proceso'
-              ? 'En gestión'
-              : 'Pendiente de ingresar OC',
-        date:
-          orden.EstadoOC === 'Generada'
-            ? (orden.FechaGeneracion || orden.FechaSolicitud)
-            : orden.FechaSolicitud,
-        actor: responsable,
-        details
+        title: 'Orden de compra',
+        fields
       };
     }
 
     if (etapa === 'Facturacion') {
-      const facturaAdjunta = ordenCompraDetalle?.AttachmentFiles?.[0];
+      const facturasAdjuntas =
+        ordenCompraDetalle?.AttachmentFiles || [];
 
-      const details: string[] = facturaAdjunta
-        ? [`Factura PDF: ${facturaAdjunta.FileName}`]
-        : ['Pendiente de factura PDF.'];
+      const totalFacturasEsperadas =
+        item.Recurrente
+          ? Math.max(1, Number(item.MesesRecurrencia || 1))
+          : 1;
+
+      const fields: IStageField[] = [
+        {
+          label: item.Recurrente
+            ? 'Estado de facturación'
+            : 'Estado de factura',
+          value:
+            item.Recurrente
+              ? `${facturasAdjuntas.length} de ${totalFacturasEsperadas} facturas registradas`
+              : item.EtapaActual === 'Finalizado'
+                ? 'Registrada'
+                : item.EtapaActual === 'Facturacion'
+                  ? facturasAdjuntas.length > 0
+                    ? 'Factura cargada'
+                    : 'Pendiente de factura'
+                  : 'No iniciada'
+        }
+      ];
+
+      if (
+        facturasAdjuntas.length > 0 &&
+        ordenCompraDetalle?.Modified
+      ) {
+        fields.push({
+          label: 'Última carga',
+          value: formatHistoryDate(
+            ordenCompraDetalle.Modified
+          )
+        });
+      }
 
       return {
         title: 'Facturación',
-        status:
-          item.EtapaActual === 'Finalizado'
-            ? 'Completada'
-            : item.EtapaActual === 'Facturacion'
-              ? (facturaAdjunta ? 'Factura cargada' : 'Pendiente de factura')
-              : 'No iniciada',
-        date:
-          facturaAdjunta
-            ? ordenCompraDetalle?.Modified
-            : undefined,
-        actor:
-          ordenCompraDetalle?.ResponsableOC?.Title ||
-          'Responsable de orden de compra',
-        details
+        fields
       };
+    }
+
+    const finalFields: IStageField[] = [
+      {
+        label: 'Estado final',
+        value:
+          item.EtapaActual === 'Finalizado'
+            ? 'Completado'
+            : 'No iniciado'
+      }
+    ];
+
+    if (
+      item.EtapaActual === 'Finalizado' &&
+      ordenCompraDetalle?.Modified
+    ) {
+      finalFields.push({
+        label: 'Fecha de cierre',
+        value: formatHistoryDate(
+          ordenCompraDetalle.Modified
+        )
+      });
     }
 
     return {
       title: 'Finalizado',
-      status:
-        item.EtapaActual === 'Finalizado'
-          ? 'Completado'
-          : 'No iniciado',
-      date:
-        ordenCompraDetalle?.AttachmentFiles?.length
-          ? ordenCompraDetalle.Modified
-          : undefined,
-      actor: 'Proceso',
-      details: [
-        ordenCompraDetalle?.AttachmentFiles?.length
-          ? 'Factura registrada. Proceso cerrado.'
-          : 'Pendiente de completar Facturación.'
-      ]
+      fields: finalFields
     };
   };
 
@@ -2134,7 +2293,13 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   };
 
   const registrarNumeroOrdenCompra = async (): Promise<void> => {
-    if (!user || user.role !== 'ResponsableOC') {
+    if (
+      !user ||
+      (
+        user.role !== 'ResponsableOC' &&
+        user.role !== 'Contador'
+      )
+    ) {
       setMessage('No tienes permisos para gestionar órdenes de compra.');
       return;
     }
@@ -2144,6 +2309,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     }
 
     if (
+      user.role === 'ResponsableOC' &&
       selectedOrdenCompra.ResponsableOCId &&
       selectedOrdenCompra.ResponsableOCId !== user.id
     ) {
@@ -2197,7 +2363,10 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         );
       }
 
-      await loadOrdenesCompra(user.id);
+      await loadOrdenesCompra(
+        user.id,
+        user.role === 'Contador'
+      );
 
       const ordenActualizada =
         selectedOrdenCompra.RequerimientoId
@@ -2239,9 +2408,10 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
   const adjuntarArchivo = async (
     listTitle: string,
     itemId: number,
-    archivoPdf: File
+    archivoPdf: File,
+    nombreDestino?: string
   ): Promise<void> => {
-    const safeFileName = archivoPdf.name.replace(/'/g, "''");
+    const safeFileName = (nombreDestino || archivoPdf.name).replace(/'/g, "''");
     const url =
       `${context.pageContext.web.absoluteUrl}` +
       `/_api/web/lists/getbytitle('${listTitle}')/items(${itemId})` +
@@ -2267,7 +2437,13 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
 
   const registrarFacturaYFinalizar = async (): Promise<void> => {
-    if (!user || user.role !== 'ResponsableOC') {
+    if (
+      !user ||
+      (
+        user.role !== 'ResponsableOC' &&
+        user.role !== 'Contador'
+      )
+    ) {
       setMessage('No tienes permisos para registrar la factura.');
       return;
     }
@@ -2278,6 +2454,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     }
 
     if (
+      user.role === 'ResponsableOC' &&
       selectedOrdenCompra.ResponsableOCId &&
       selectedOrdenCompra.ResponsableOCId !== user.id
     ) {
@@ -2295,36 +2472,56 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       return;
     }
 
-    const facturaExistente = selectedOrdenCompra.AttachmentFiles?.[0];
+    const totalFacturasEsperadas = selectedRequerimiento.Recurrente
+      ? Number(selectedRequerimiento.MesesRecurrencia || 0)
+      : 1;
 
-    if (!facturaExistente && !facturaPdf) {
-      setMessage('Adjunte el PDF de la factura antes de finalizar.');
+    if (
+      selectedRequerimiento.Recurrente &&
+      (
+        !Number.isFinite(totalFacturasEsperadas) ||
+        totalFacturasEsperadas < 1
+      )
+    ) {
+      setMessage(
+        'El requerimiento recurrente no tiene una duración válida para registrar sus facturas.'
+      );
       return;
     }
 
-    if (facturaPdf) {
-      const esPdf =
-        facturaPdf.type === 'application/pdf' ||
-        /\.pdf$/i.test(facturaPdf.name);
+    const facturasRegistradas =
+      selectedOrdenCompra.AttachmentFiles?.length || 0;
 
-      if (!esPdf) {
-        setMessage('La factura debe ser un archivo PDF.');
-        return;
-      }
+    if (facturasRegistradas >= totalFacturasEsperadas) {
+      setMessage(
+        selectedRequerimiento.Recurrente
+          ? `Ya se registraron las ${totalFacturasEsperadas} facturas del contrato.`
+          : 'La factura ya fue registrada.'
+      );
+      return;
+    }
+
+    if (!facturaPdf) {
+      setMessage(
+        selectedRequerimiento.Recurrente
+          ? `Adjunte la factura ${facturasRegistradas + 1} de ${totalFacturasEsperadas}.`
+          : 'Adjunte el PDF de la factura antes de finalizar.'
+      );
+      return;
+    }
+
+    const esPdf =
+      facturaPdf.type === 'application/pdf' ||
+      /\.pdf$/i.test(facturaPdf.name);
+
+    if (!esPdf) {
+      setMessage('La factura debe ser un archivo PDF.');
+      return;
     }
 
     try {
       setProcesandoFactura(true);
       setMessage('');
-
-      // Si el archivo ya existe por un intento anterior, no lo vuelve a adjuntar.
-      if (!facturaExistente && facturaPdf) {
-        await adjuntarArchivo(
-          'OrdenesCompra',
-          selectedOrdenCompra.Id,
-          facturaPdf
-        );
-      }
 
       if (!selectedOrdenCompra.RequerimientoId) {
         throw new Error(
@@ -2332,13 +2529,35 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         );
       }
 
-      await updateListItem(
-        'Requerimientos',
-        selectedOrdenCompra.RequerimientoId,
-        {
-          EtapaActual: 'Finalizado'
-        }
+      const numeroFactura = facturasRegistradas + 1;
+
+      const nombreFacturaDestino =
+        selectedRequerimiento.Recurrente
+          ? `Factura-${('00' + numeroFactura).slice(-2)}-${facturaPdf.name}`
+          : facturaPdf.name;
+
+      await adjuntarArchivo(
+        'OrdenesCompra',
+        selectedOrdenCompra.Id,
+        facturaPdf,
+        nombreFacturaDestino
       );
+
+      const totalFacturasDespues =
+        facturasRegistradas + 1;
+
+      const debeFinalizar =
+        totalFacturasDespues >= totalFacturasEsperadas;
+
+      if (debeFinalizar) {
+        await updateListItem(
+          'Requerimientos',
+          selectedOrdenCompra.RequerimientoId,
+          {
+            EtapaActual: 'Finalizado'
+          }
+        );
+      }
 
       const [ordenActualizada, requerimientoActualizado] = await Promise.all([
         getOrdenCompraPorRequerimiento(selectedOrdenCompra.RequerimientoId),
@@ -2351,19 +2570,537 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       }
 
       setSelectedRequerimiento(requerimientoActualizado);
-      setEtapaConsulta('Finalizado');
+      setEtapaConsulta(
+        debeFinalizar
+          ? 'Finalizado'
+          : 'Facturacion'
+      );
       setFacturaPdf(null);
 
-      await loadOrdenesCompra(user.id);
-
-      setMessage(
-        'Factura registrada. Requerimiento finalizado.'
+      await loadOrdenesCompra(
+        user.id,
+        user.role === 'Contador'
       );
+
+      if (selectedRequerimiento.Recurrente) {
+        setMessage(
+          debeFinalizar
+            ? `Factura ${totalFacturasDespues} de ${totalFacturasEsperadas} registrada correctamente. Requerimiento finalizado.`
+            : `Factura ${totalFacturasDespues} de ${totalFacturasEsperadas} registrada correctamente. El requerimiento continúa en Facturación.`
+        );
+      } else {
+        setMessage(
+          'Factura registrada. Requerimiento finalizado.'
+        );
+      }
     } catch (error) {
       setMessage(getErrorMessage(error));
     } finally {
       setProcesandoFactura(false);
     }
+  };
+
+
+  const renderProcessTimeline = (
+    item: IRequerimientoItem
+  ): React.ReactElement => (
+    <div
+      className={`${styles.compactTimeline} ${styles.topProcessTimeline}`}
+      aria-label="Etapas del proceso"
+    >
+      {getEtapas(item).map((etapa, index, etapas) => {
+        const currentIndex = Math.max(
+          0,
+          etapas.indexOf(item.EtapaActual || 'Solicitud')
+        );
+
+        const completed =
+          index < currentIndex ||
+          item.EtapaActual === 'Finalizado';
+
+        const current =
+          index === currentIndex &&
+          item.EtapaActual !== 'Finalizado';
+
+        const consultable =
+          index <= currentIndex ||
+          item.EtapaActual === 'Finalizado';
+
+        const selected = etapaConsulta === etapa;
+
+        return (
+          <button
+            key={etapa}
+            type="button"
+            className={`${styles.compactTimelineStep} ${styles.timelineStepButton} ${completed ? styles.timelineCompleted : ''} ${current ? styles.timelineCurrent : ''} ${selected ? styles.timelineSelected : ''}`}
+            aria-current={current ? 'step' : undefined}
+            aria-pressed={selected}
+            disabled={!consultable}
+            onClick={() => {
+              if (consultable) {
+                setEtapaConsulta(etapa);
+              }
+            }}
+          >
+            <div className={styles.compactTimelineMarker}>
+              {completed ? '✓' : index + 1}
+            </div>
+            <span>{getEtapaLabel(etapa)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const renderStageInspection = (
+    item: IRequerimientoItem
+  ): React.ReactElement | null => {
+    if (!etapaConsulta) {
+      return null;
+    }
+
+    const etapaData = getStageInspection(
+      item,
+      etapaConsulta
+    );
+
+    const columnCount = Math.max(
+      1,
+      Math.min(etapaData.fields.length, 6)
+    );
+
+    return (
+      <div className={styles.stageDataSection}>
+        <div className={styles.stageDataHeading}>
+          <small>INFORMACIÓN DE ETAPA</small>
+          <strong>{etapaData.title}</strong>
+        </div>
+
+        <div
+          className={styles.stageDataGrid}
+          style={{
+            gridTemplateColumns:
+              `repeat(${columnCount}, minmax(0, 1fr))`
+          }}
+        >
+          {etapaData.fields.map(
+            (
+              field: IStageField,
+              fieldIndex: number
+            ) => (
+              <div
+                key={`${etapaData.title}-${field.label}-${fieldIndex}`}
+                className={styles.stageDataField}
+                title={`${field.label}: ${field.value}`}
+              >
+                <small>{field.label}</small>
+                <strong>{field.value}</strong>
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAllQuotations = (
+    item: IRequerimientoItem
+  ): React.ReactElement => (
+    <section className={`${styles.formSection} ${styles.detailQuotationsSection}`}>
+      <div className={`${styles.sectionHeaderRow} ${styles.compactQuotationHeader}`}>
+        <h3>Cotizaciones</h3>
+        <span className={styles.counterBadge}>
+          {cotizacionesDetalle.length} / 3
+        </span>
+      </div>
+
+      {loadingDetalle ? (
+        <div
+          className={styles.detailQuotationSkeletonGrid}
+          aria-busy="true"
+          aria-label="Cargando cotizaciones"
+        >
+          {[0, 1, 2].map((skeletonItem) => (
+            <div
+              key={skeletonItem}
+              className={styles.detailQuotationSkeleton}
+            />
+          ))}
+        </div>
+      ) : cotizacionesDetalle.length === 0 ? (
+        <div className={styles.emptyState}>
+          Este requerimiento no tiene cotizaciones registradas.
+        </div>
+      ) : (
+        <div className={styles.approvalQuotationGrid}>
+          {cotizacionesDetalle.map(
+            (cotizacion: ICotizacionDetalle, cotizacionIndex: number) => {
+              const puedeSeleccionar =
+                (user?.role === 'Aprobador' || user?.role === 'Admin') &&
+                item.Estado === 'Enviado Aprobacion';
+
+              const seleccionada =
+                cotizacionSeleccionadaId === cotizacion.Id;
+
+              const aprobada =
+                cotizacion.Seleccionada &&
+                item.Estado === 'Aprobado';
+
+              return (
+                <div
+                  key={cotizacion.Id}
+                  className={`${styles.approvalQuotationCard} ${
+                    seleccionada || aprobada
+                      ? styles.approvalQuotationCardSelected
+                      : ''
+                  } ${
+                    puedeSeleccionar
+                      ? styles.approvalQuotationCardClickable
+                      : ''
+                  }`}
+                  role={puedeSeleccionar ? 'button' : undefined}
+                  tabIndex={puedeSeleccionar ? 0 : undefined}
+                  aria-pressed={
+                    puedeSeleccionar ? seleccionada : undefined
+                  }
+                  onClick={() => {
+                    if (puedeSeleccionar && !procesandoDecision) {
+                      setCotizacionSeleccionadaId(cotizacion.Id);
+                    }
+                  }}
+                  onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+                    if (
+                      puedeSeleccionar &&
+                      (event.key === 'Enter' || event.key === ' ')
+                    ) {
+                      event.preventDefault();
+                      setCotizacionSeleccionadaId(cotizacion.Id);
+                    }
+                  }}
+                >
+                  <div className={styles.readOnlyQuotationHeader}>
+                    <span className={styles.quotationLabel}>
+                      COTIZACIÓN {cotizacionIndex + 1}
+                    </span>
+
+                    <div className={styles.readOnlyQuotationHeaderMeta}>
+                      {cotizacion.CodigoCotizacionInterno && (
+                        <small title={cotizacion.CodigoCotizacionInterno}>
+                          {cotizacion.CodigoCotizacionInterno}
+                        </small>
+                      )}
+
+                      {(seleccionada || aprobada) && (
+                        <span
+                          className={styles.selectionCheck}
+                          title="Cotización seleccionada"
+                        >
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.readOnlyQuotationBody}>
+                    <div className={styles.readOnlyQuotationField}>
+                      <small>PDF</small>
+
+                      {cotizacion.Attachments.length > 0 ? (
+                        cotizacion.Attachments.map((archivo) => (
+                          <div
+                            key={archivo.ServerRelativeUrl}
+                            className={styles.readOnlyPdfChip}
+                          >
+                            <span className={styles.pdfFileIcon}>
+                              PDF
+                            </span>
+                            <span
+                              className={styles.pdfFileName}
+                              title={archivo.FileName}
+                            >
+                              {archivo.FileName}
+                            </span>
+                            <button
+                              type="button"
+                              className={styles.previewIconButton}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setArchivoPreview(archivo);
+                              }}
+                            >
+                              Ver PDF
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <span className={styles.noFileText}>
+                          Sin documento adjunto
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.readOnlyQuotationFooter}>
+                    <span>Total</span>
+                    <strong>
+                      {formatCurrency(cotizacion.ValorTotal)}
+                    </strong>
+                  </div>
+                </div>
+              );
+            }
+          )}
+        </div>
+      )}
+    </section>
+  );
+
+  const renderTraceabilityAndDocuments = (
+    item: IRequerimientoItem,
+    allowInvoiceUpload: boolean
+  ): React.ReactElement => {
+    const cotizacionGanadora =
+      cotizacionesDetalle.find(
+        (cotizacion: ICotizacionDetalle) =>
+          cotizacion.Seleccionada
+      );
+
+    const orden =
+      ordenCompraDetalle?.RequerimientoId === item.Id
+        ? ordenCompraDetalle
+        : selectedOrdenCompra?.RequerimientoId === item.Id
+          ? selectedOrdenCompra
+          : null;
+
+    const facturas =
+      orden?.AttachmentFiles || [];
+
+    const totalFacturasEsperadas =
+      item.Recurrente
+        ? Math.max(1, Number(item.MesesRecurrencia || 1))
+        : 1;
+
+    const facturasRegistradas =
+      facturas.length;
+
+    const puedeSubirFactura =
+      allowInvoiceUpload &&
+      !!orden &&
+      orden.EstadoOC === 'Generada' &&
+      item.EtapaActual === 'Facturacion' &&
+      facturasRegistradas < totalFacturasEsperadas;
+
+    const esUltimaFacturaPendiente =
+      facturasRegistradas + 1 >= totalFacturasEsperadas;
+
+    return (
+      <div className={styles.traceabilityDocumentsGrid}>
+        <section className={`${styles.detailCard} ${styles.historyCard}`}>
+          <div className={styles.historyHeader}>
+            <div>
+              <span className={styles.eyebrow}>TRAZABILIDAD</span>
+              <h3>Historial del requerimiento</h3>
+            </div>
+          </div>
+
+          <div className={styles.historyList}>
+            {getHistoryEvents(item)
+              .slice()
+              .reverse()
+              .map((event: IHistoryEvent) => (
+                <div
+                  key={event.key}
+                  className={styles.historyItem}
+                >
+                  <div className={styles.historyRail}>
+                    <span className={styles.historyDot} />
+                  </div>
+
+                  <div className={styles.historyContent}>
+                    <div className={styles.historyItemHeader}>
+                      <strong>{event.title}</strong>
+                    </div>
+
+                    <div className={styles.historyDate}>
+                      {formatHistoryDate(event.date)}
+                    </div>
+
+                    {event.actor && (
+                      <small>Por {event.actor}</small>
+                    )}
+
+                    {event.detail && (
+                      <p>{event.detail}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+
+        <section className={`${styles.detailCard} ${styles.documentsCard}`}>
+          <div className={styles.historyHeader}>
+            <div>
+              <span className={styles.eyebrow}>DOCUMENTOS</span>
+              <h3>Archivos del expediente</h3>
+            </div>
+          </div>
+
+          <div className={styles.documentsList}>
+            <div className={styles.documentGroup}>
+              <div className={styles.documentGroupHeader}>
+                <strong>Cotización ganadora</strong>
+                <small>
+                  {cotizacionGanadora
+                    ? (
+                        cotizacionGanadora.CodigoCotizacionInterno ||
+                        cotizacionGanadora.Title
+                      )
+                    : 'Pendiente de selección'}
+                </small>
+              </div>
+
+              {cotizacionGanadora ? (
+                cotizacionGanadora.Attachments.length > 0 ? (
+                  cotizacionGanadora.Attachments.map((archivo) => (
+                    <button
+                      key={archivo.ServerRelativeUrl}
+                      type="button"
+                      className={styles.documentRow}
+                      onClick={() => setArchivoPreview(archivo)}
+                    >
+                      <span className={styles.pdfFileIcon}>PDF</span>
+                      <span>{archivo.FileName}</span>
+                      <strong>Ver</strong>
+                    </button>
+                  ))
+                ) : (
+                  <span className={styles.noFileText}>
+                    La cotización ganadora no tiene PDF adjunto.
+                  </span>
+                )
+              ) : (
+                <span className={styles.noFileText}>
+                  Aún no existe una cotización ganadora.
+                </span>
+              )}
+            </div>
+
+            <div className={styles.documentGroup}>
+              <div className={styles.documentGroupHeader}>
+                <strong>{item.Recurrente ? 'Facturas' : 'Factura'}</strong>
+                <small>
+                  {item.Recurrente
+                    ? `${facturasRegistradas} de ${totalFacturasEsperadas} registradas`
+                    : facturasRegistradas > 0
+                      ? 'Registrada'
+                      : item.EtapaActual === 'Facturacion'
+                        ? 'Pendiente'
+                        : 'No disponible'}
+                </small>
+              </div>
+
+              {facturasRegistradas > 0 && (
+                <>
+                  {facturas.map((archivo) => (
+                    <button
+                      key={archivo.ServerRelativeUrl}
+                      type="button"
+                      className={styles.documentRow}
+                      onClick={() => setArchivoPreview(archivo)}
+                    >
+                      <span className={styles.pdfFileIcon}>PDF</span>
+                      <span>{archivo.FileName}</span>
+                      <strong>Ver</strong>
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {puedeSubirFactura ? (
+                <div className={styles.invoiceUploadCompact}>
+                  {facturaPdf ? (
+                    <div className={styles.pdfFileChip}>
+                      <span className={styles.pdfFileIcon}>PDF</span>
+                      <span
+                        className={styles.pdfFileName}
+                        title={facturaPdf.name}
+                      >
+                        {facturaPdf.name}
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.pdfFileRemove}
+                        disabled={procesandoFactura}
+                        onClick={() => setFacturaPdf(null)}
+                        aria-label="Quitar factura seleccionada"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : (
+                    <label className={styles.fileUpload}>
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        disabled={procesandoFactura}
+                        onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                          const archivo = event.target.files?.[0] || null;
+
+                          if (archivo) {
+                            const esPdf =
+                              archivo.type === 'application/pdf' ||
+                              /\.pdf$/i.test(archivo.name);
+
+                            if (!esPdf) {
+                              setMessage('La factura debe ser un archivo PDF.');
+                              event.target.value = '';
+                              return;
+                            }
+                          }
+
+                          setMessage('');
+                          setFacturaPdf(archivo);
+                        }}
+                      />
+                      <span className={styles.fileUploadIcon}>↑</span>
+                      <span className={styles.fileUploadText}>
+                        {item.Recurrente
+                          ? `Adjuntar factura ${facturasRegistradas + 1} de ${totalFacturasEsperadas}`
+                          : 'Adjuntar factura PDF'}
+                      </span>
+                    </label>
+                  )}
+
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    disabled={procesandoFactura || !facturaPdf}
+                    onClick={() => {
+                      registrarFacturaYFinalizar().catch((error: unknown) => {
+                        setMessage(getErrorMessage(error));
+                      });
+                    }}
+                  >
+                    {procesandoFactura
+                      ? 'Procesando...'
+                      : item.Recurrente && !esUltimaFacturaPendiente
+                        ? 'Guardar factura →'
+                        : 'Guardar factura y finalizar →'}
+                  </button>
+                </div>
+              ) : facturasRegistradas === 0 ? (
+                <span className={styles.noFileText}>
+                  {item.EtapaActual === 'Finalizado'
+                    ? 'No se encontró una factura adjunta.'
+                    : 'La factura aparecerá cuando el proceso llegue a Facturación.'}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      </div>
+    );
   };
 
 
@@ -2434,6 +3171,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           : ''
       );
       setRecurrente(requerimiento.Recurrente);
+      setMesesRecurrencia(
+        requerimiento.Recurrente && requerimiento.MesesRecurrencia
+          ? String(requerimiento.MesesRecurrencia)
+          : ''
+      );
       setCotizaciones(cotizacionesBorrador);
       setCotizacionesDetalle(detalle);
       setSelectedRequerimiento(null);
@@ -2453,6 +3195,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
     setDescripcion('');
     setCategoriaId('');
     setRecurrente(false);
+    setMesesRecurrencia('');
     setCotizaciones([createEmptyCotizacion()]);
     setMessage('');
 
@@ -2555,6 +3298,33 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         );
       }
 
+      const mesesRecurrenciaNumero =
+        recurrente && mesesRecurrencia.trim()
+          ? Number(mesesRecurrencia)
+          : null;
+
+      const mesesRecurrenciaValido =
+        mesesRecurrenciaNumero !== null &&
+        Number.isFinite(mesesRecurrenciaNumero) &&
+        mesesRecurrenciaNumero >= 1 &&
+        Math.floor(mesesRecurrenciaNumero) === mesesRecurrenciaNumero;
+
+      if (
+        recurrente &&
+        mesesRecurrencia.trim() &&
+        !mesesRecurrenciaValido
+      ) {
+        throw new Error(
+          'Ingrese una cantidad válida de meses para el requerimiento recurrente.'
+        );
+      }
+
+      if (enviar && recurrente && !mesesRecurrenciaValido) {
+        throw new Error(
+          'Ingrese la duración en meses del requerimiento recurrente antes de enviarlo.'
+        );
+      }
+
       if (enviar) {
         cotizaciones.forEach(
           (
@@ -2623,6 +3393,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             Area: user.area || '',
             CategoriaId: Number(categoriaId),
             Recurrente: recurrente,
+            MesesRecurrencia: recurrente ? mesesRecurrenciaNumero : null,
             ValorPromedio: valorPromedio,
             ValorTotal: null,
             EtapaActual: 'Solicitud',
@@ -2666,6 +3437,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             CategoriaId: Number(categoriaId),
             AprobadorId: null,
             Recurrente: recurrente,
+            MesesRecurrencia: recurrente ? mesesRecurrenciaNumero : null,
             ValorPromedio: valorPromedio,
             ValorTotal: null,
             EtapaActual: 'Solicitud',
@@ -2756,6 +3528,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             Area: user.area || '',
             CategoriaId: Number(categoriaId),
             AprobadorId: aprobadorId,
+            Recurrente: recurrente,
+            MesesRecurrencia: recurrente ? mesesRecurrenciaNumero : null,
             ValorPromedio: valorPromedio,
             ValorTotal: null,
             FechaEnvioAprobacion: new Date().toISOString(),
@@ -2768,6 +3542,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
       setDescripcion('');
       setCategoriaId('');
       setRecurrente(false);
+      setMesesRecurrencia('');
       setCotizaciones([createEmptyCotizacion()]);
       setEditingDraftId(null);
       setOriginalDraftCotizacionIds([]);
@@ -2989,9 +3764,10 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
         </div>
       )}
 
-      {/* NAVEGACIÓN RESPONSABLE OC */}
+      {/* NAVEGACIÓN RESPONSABLE OC / CONTADOR */}
 
-      {user?.role === 'ResponsableOC' && (
+      {(user?.role === 'ResponsableOC' ||
+        user?.role === 'Contador') && (
         <div className={styles.tabs}>
           <button
             type="button"
@@ -3063,59 +3839,105 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
           </div>
 
           <section className={`${styles.formSection} ${styles.compactRequestSection}`}>
-            <div className={styles.compactRequestGrid}>
-              <div className={styles.formGroup}>
-                <label className={styles.label} htmlFor="requerimiento-categoria">Categoría</label>
-                <select
-                  id="requerimiento-categoria"
-                  className={styles.select}
-                  value={categoriaId}
-                  onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
-                    setCategoriaId(event.target.value)
-                  }
+            <div className={styles.requestFormLayout}>
+              <div
+                className={`${styles.requestPrimaryRow} ${
+                  recurrente
+                    ? styles.requestPrimaryRowRecurring
+                    : styles.requestPrimaryRowSimple
+                }`}
+              >
+                <div className={styles.formGroup}>
+                  <label className={styles.label} htmlFor="requerimiento-categoria">
+                    Categoría
+                  </label>
+                  <select
+                    id="requerimiento-categoria"
+                    className={styles.select}
+                    value={categoriaId}
+                    onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                      setCategoriaId(event.target.value)
+                    }
+                  >
+                    <option value="">Seleccione una categoría</option>
+                    {categories.map((category: ICategory) => (
+                      <option key={category.Id} value={category.Id}>
+                        {category.NombreCategoria}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Tipo</label>
+                  <div className={styles.compactProcessOptions}>
+                    <button
+                      type="button"
+                      className={`${styles.compactProcessOption} ${!recurrente ? styles.compactProcessOptionActive : ''}`}
+                      aria-pressed={!recurrente}
+                      onClick={() => {
+                        setRecurrente(false);
+                        setMesesRecurrencia('');
+                      }}
+                    >
+                      <span className={styles.toggleDot} />
+                      <span>
+                        <strong>No recurrente</strong>
+                        <small>OCV</small>
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`${styles.compactProcessOption} ${recurrente ? styles.compactProcessOptionActive : ''}`}
+                      aria-pressed={recurrente}
+                      onClick={() => setRecurrente(true)}
+                    >
+                      <span className={styles.toggleDot} />
+                      <span>
+                        <strong>Recurrente</strong>
+                        <small>Contrato</small>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  className={`${styles.recurrenceSlot} ${
+                    recurrente ? styles.recurrenceSlotVisible : ''
+                  }`}
+                  aria-hidden={!recurrente}
                 >
-                  <option value="">Seleccione una categoría</option>
-                  {categories.map((category: ICategory) => (
-                    <option key={category.Id} value={category.Id}>
-                      {category.NombreCategoria}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Tipo</label>
-                <div className={styles.compactProcessOptions}>
-                  <button
-                    type="button"
-                    className={`${styles.compactProcessOption} ${!recurrente ? styles.compactProcessOptionActive : ''}`}
-                    aria-pressed={!recurrente}
-                    onClick={() => setRecurrente(false)}
-                  >
-                    <span className={styles.toggleDot} />
-                    <span>
-                      <strong>No recurrente</strong>
-                      <small>OCV</small>
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`${styles.compactProcessOption} ${recurrente ? styles.compactProcessOptionActive : ''}`}
-                    aria-pressed={recurrente}
-                    onClick={() => setRecurrente(true)}
-                  >
-                    <span className={styles.toggleDot} />
-                    <span>
-                      <strong>Recurrente</strong>
-                      <small>Contrato</small>
-                    </span>
-                  </button>
+                  <label className={styles.label} htmlFor="meses-recurrencia">
+                    Duración del contrato
+                  </label>
+                  <div className={styles.recurrenceInputRow}>
+                    <input
+                      id="meses-recurrencia"
+                      className={styles.input}
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={mesesRecurrencia}
+                      placeholder="Ej. 12"
+                      tabIndex={recurrente ? 0 : -1}
+                      disabled={!recurrente}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                        setMesesRecurrencia(event.target.value)
+                      }
+                    />
+                    <span>meses</span>
+                  </div>
+                  <small>
+                    Indica cuántos meses cubrirá este requerimiento recurrente.
+                  </small>
                 </div>
               </div>
 
               <div className={`${styles.formGroup} ${styles.compactDescription}`}>
-                <label className={styles.label} htmlFor="requerimiento-descripcion">Descripción</label>
+                <label className={styles.label} htmlFor="requerimiento-descripcion">
+                  Descripción
+                </label>
                 <textarea
                   id="requerimiento-descripcion"
                   className={styles.textarea}
@@ -3227,7 +4049,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                     </div>
 
                     <div className={styles.formGroup}>
-                      <label className={styles.label}>Valor</label>
+                      <label className={styles.label}>Total</label>
                       <div className={styles.moneyInput}>
                         <span>$</span>
                         <input
@@ -3246,10 +4068,6 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                     </div>
                   </div>
 
-                  <div className={styles.quotationFooter}>
-                    <span>Total</span>
-                    <strong>{formatCurrency(Number(cotizacion.valorTotal) || 0)}</strong>
-                  </div>
                 </div>
               ))}
 
@@ -3287,7 +4105,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
 
       {/* ÓRDENES DE COMPRA - RESPONSABLE OC */}
 
-      {activeView === 'ordenes' && user?.role === 'ResponsableOC' && (
+      {activeView === 'ordenes' &&
+        (user?.role === 'ResponsableOC' ||
+          user?.role === 'Contador') && (
         selectedOrdenCompra ? (
           <div className={styles.detailWorkspace}>
             <div className={styles.detailTopBar}>
@@ -3297,16 +4117,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 disabled={procesandoOrdenCompra}
                 onClick={cerrarOrdenCompra}
               >
-                ← Órdenes de compra
+                ← Volver
               </button>
 
               <div className={styles.detailSectionHeading}>
-                <div className={styles.detailTitleRow}>
-                  <h2 className={styles.pageTitle}>
-                    {selectedRequerimiento
-                      ? `Requerimiento #${selectedRequerimiento.Id}`
-                      : (selectedOrdenCompra.Title || `OC #${selectedOrdenCompra.Id}`)}
-                  </h2>
+                <div className={styles.detailStatusGroup}>
                   <span className={getEstadoClass(
                     selectedOrdenCompra.EstadoOC === 'Generada'
                       ? 'Aprobado'
@@ -3316,32 +4131,51 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                   )}>
                     {selectedOrdenCompra.EstadoOC}
                   </span>
+                  <span className={styles.roleAccentBadge}>
+                    {selectedOrdenCompra.TipoDocumento}
+                  </span>
                 </div>
-                <span className={styles.roleAccentBadge}>
-                  {selectedOrdenCompra.TipoDocumento}
-                </span>
               </div>
             </div>
 
             {selectedRequerimiento && (
               <>
+                {renderProcessTimeline(selectedRequerimiento)}
+
                 <section className={`${styles.detailCard} ${styles.unifiedRequestCard}`}>
+                  <div className={styles.sectionMiniHeading}>
+                    <span className={styles.eyebrow}>DATOS GENERALES</span>
+                  </div>
+
                   <div className={styles.readOnlyFieldsGrid}>
+                    <div className={`${styles.readOnlyField} ${styles.requestIdMiniField}`}>
+                      <small>Requerimiento</small>
+                      <strong>#{selectedRequerimiento.Id}</strong>
+                    </div>
+
                     <div className={styles.readOnlyField}>
                       <small>Área</small>
-                      <strong>{selectedRequerimiento.Area || 'Sin área'}</strong>
+                      <strong>
+                        {selectedRequerimiento.Area || 'Sin área'}
+                      </strong>
                     </div>
 
                     <div className={styles.readOnlyField}>
                       <small>Categoría</small>
-                      <strong>{getCategoriaNombre(selectedRequerimiento.CategoriaId)}</strong>
+                      <strong>
+                        {getCategoriaNombre(selectedRequerimiento.CategoriaId)}
+                      </strong>
                     </div>
 
                     <div className={styles.readOnlyField}>
                       <small>Tipo de proceso</small>
                       <strong>
                         {selectedRequerimiento.Recurrente
-                          ? 'Recurrente · Contrato'
+                          ? `Recurrente · Contrato${
+                              selectedRequerimiento.MesesRecurrencia
+                                ? ` · ${selectedRequerimiento.MesesRecurrencia} meses`
+                                : ''
+                            }`
                           : 'No recurrente · OCV'}
                       </strong>
                     </div>
@@ -3349,18 +4183,16 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                     <div className={styles.readOnlyField}>
                       <small>Solicitado por</small>
                       <strong>
-                        {selectedRequerimiento.Solicitante?.Title || 'Sin solicitante'}
+                        {selectedRequerimiento.Solicitante?.Title ||
+                          'Sin solicitante'}
                       </strong>
                     </div>
 
                     <div className={styles.readOnlyField}>
                       <small>Fecha de solicitud</small>
-                      <strong>{formatDateTime(selectedRequerimiento.Created)}</strong>
-                    </div>
-
-                    <div className={styles.readOnlyField}>
-                      <small>Valor aprobado</small>
-                      <strong>{formatCurrency(selectedRequerimiento.ValorTotal)}</strong>
+                      <strong>
+                        {formatHistoryDate(selectedRequerimiento.Created)}
+                      </strong>
                     </div>
                   </div>
 
@@ -3371,529 +4203,108 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                     </p>
                   </div>
 
-                  <div className={styles.compactDecisionInfo}>
-                    <small>APROBACIÓN</small>
-                    <span>
-                      <strong>Aprobado por </strong>
-                      {selectedRequerimiento.DecisionPor?.Title ||
-                        selectedRequerimiento.Aprobador?.Title ||
-                        'Sin información'}
-                      {(selectedRequerimiento.FechaDecision ||
-                        selectedRequerimiento.FechaAprobacion) && (
-                        <>
-                          {' · '}
-                          {formatDateTime(
-                            selectedRequerimiento.FechaDecision ||
-                            selectedRequerimiento.FechaAprobacion
-                          )}
-                        </>
-                      )}
-                      {selectedRequerimiento.ComentarioAprobador && (
-                        <> · {selectedRequerimiento.ComentarioAprobador}</>
-                      )}
-                    </span>
-                  </div>
-
-                  <div className={styles.compactTimeline} aria-label="Etapas del proceso">
-                    {getEtapas(selectedRequerimiento).map((etapa, index, etapas) => {
-                      const currentIndex = Math.max(
-                        0,
-                        etapas.indexOf(
-                          selectedRequerimiento.EtapaActual || 'Solicitud'
-                        )
-                      );
-
-                      const completed =
-                        index < currentIndex ||
-                        selectedRequerimiento.EtapaActual === 'Finalizado';
-
-                      const current =
-                        index === currentIndex &&
-                        selectedRequerimiento.EtapaActual !== 'Finalizado';
-
-                      const consultable =
-                        index <= currentIndex ||
-                        selectedRequerimiento.EtapaActual === 'Finalizado';
-
-                      const selected = etapaConsulta === etapa;
-
-                      return (
-                        <button
-                          key={etapa}
-                          type="button"
-                          className={`${styles.compactTimelineStep} ${styles.timelineStepButton} ${completed ? styles.timelineCompleted : ''} ${current ? styles.timelineCurrent : ''} ${selected ? styles.timelineSelected : ''}`}
-                          aria-current={current ? 'step' : undefined}
-                          aria-pressed={selected}
-                          disabled={!consultable}
-                          onClick={() => {
-                            if (consultable) {
-                              setEtapaConsulta(etapa);
-                            }
-                          }}
-                        >
-                          <div className={styles.compactTimelineMarker}>
-                            {completed ? '✓' : index + 1}
-                          </div>
-                          <span>{getEtapaLabel(etapa)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {etapaConsulta && (() => {
-                    const etapaData = getStageInspection(
-                      selectedRequerimiento,
-                      etapaConsulta
-                    );
-
-                    return (
-                      <div className={styles.stageInspection}>
-                        <div className={styles.stageInspectionHeader}>
-                          <div>
-                            <small>DETALLE DE ETAPA</small>
-                            <strong>{etapaData.title}</strong>
-                          </div>
-                          <span>{etapaData.status}</span>
-                        </div>
-
-                        <div className={styles.stageInspectionMeta}>
-                          {etapaData.date && (
-                            <span>{formatDateTime(etapaData.date)}</span>
-                          )}
-                          {etapaData.actor && (
-                            <span>{etapaData.actor}</span>
-                          )}
-                        </div>
-
-                        <div className={styles.stageInspectionDetails}>
-                          {etapaData.details.map(
-                            (detail: string, detailIndex: number) => (
-                              <div key={`${etapaData.title}-${detailIndex}`}>
-                                {detail}
-                              </div>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
                 </section>
 
-                <section className={`${styles.formSection} ${styles.detailQuotationsSection}`}>
-                  <div className={`${styles.sectionHeaderRow} ${styles.compactQuotationHeader}`}>
-                    <h3>Cotización aprobada</h3>
-                  </div>
+                {renderStageInspection(selectedRequerimiento)}
 
-                  {loadingDetalle ? (
-                    <div className={styles.emptyState}>Cargando cotización...</div>
-                  ) : cotizacionesDetalle.filter(
-                        (cotizacion) => cotizacion.Seleccionada
-                      ).length === 0 ? (
-                    <div className={styles.emptyState}>
-                      No se encontró la cotización aprobada.
-                    </div>
-                  ) : (
-                    <div className={styles.approvalQuotationGrid}>
-                      {cotizacionesDetalle
-                        .filter((cotizacion) => cotizacion.Seleccionada)
-                        .map((cotizacion: ICotizacionDetalle) => (
-                          <div
-                            key={cotizacion.Id}
-                            className={`${styles.approvalQuotationCard} ${styles.approvalQuotationCardSelected}`}
-                          >
-                            <div className={styles.readOnlyQuotationHeader}>
-                              <span className={styles.quotationLabel}>
-                                COTIZACIÓN APROBADA
-                              </span>
-                              <div className={styles.readOnlyQuotationHeaderMeta}>
-                                {cotizacion.CodigoCotizacionInterno && (
-                                  <small>{cotizacion.CodigoCotizacionInterno}</small>
-                                )}
-                                <span className={styles.selectionCheck}>✓</span>
-                              </div>
-                            </div>
-
-                            <div className={styles.readOnlyQuotationBody}>
-                              <div className={styles.readOnlyQuotationField}>
-                                <small>PDF</small>
-                                {cotizacion.Attachments.length > 0 ? (
-                                  cotizacion.Attachments.map((archivo) => (
-                                    <div
-                                      key={archivo.ServerRelativeUrl}
-                                      className={styles.readOnlyPdfChip}
-                                    >
-                                      <span className={styles.pdfFileIcon}>PDF</span>
-                                      <span
-                                        className={styles.pdfFileName}
-                                        title={archivo.FileName}
-                                      >
-                                        {archivo.FileName}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        className={styles.previewIconButton}
-                                        onClick={() => setArchivoPreview(archivo)}
-                                      >
-                                        Ver PDF
-                                      </button>
-                                    </div>
-                                  ))
-                                ) : (
-                                  <span className={styles.noFileText}>
-                                    Sin documento adjunto
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className={styles.readOnlyQuotationField}>
-                                <small>Valor aprobado</small>
-                                <strong className={styles.readOnlyQuotationValue}>
-                                  {formatCurrency(cotizacion.ValorTotal)}
-                                </strong>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </section>
-              </>
-            )}
-
-            <section className={`${styles.detailCard} ${styles.unifiedRequestCard}`}>
-              <div className={styles.readOnlyFieldsGrid}>
-                <div className={styles.readOnlyField}>
-                  <small>Requerimiento</small>
-                  <strong>
-                    {selectedOrdenCompra.RequerimientoId
-                      ? `#${selectedOrdenCompra.RequerimientoId}`
-                      : 'Sin requerimiento'}
-                  </strong>
-                </div>
-
-                <div className={styles.readOnlyField}>
-                  <small>Tipo de gestión</small>
-                  <strong>
-                    {selectedOrdenCompra.TipoOrden === 'GenerarOC'
-                      ? 'Generación automática'
-                      : 'Ingreso desde ERP'}
-                  </strong>
-                </div>
-
-                <div className={styles.readOnlyField}>
-                  <small>Solicitado por</small>
-                  <strong>
-                    {selectedOrdenCompra.SolicitadoPor?.Title || 'Sin solicitante'}
-                  </strong>
-                </div>
-
-                <div className={styles.readOnlyField}>
-                  <small>Fecha solicitud</small>
-                  <strong>
-                    {selectedOrdenCompra.FechaSolicitud
-                      ? formatDateTime(selectedOrdenCompra.FechaSolicitud)
-                      : 'Sin fecha'}
-                  </strong>
-                </div>
-
-                <div className={styles.readOnlyField}>
-                  <small>Número OC</small>
-                  <strong>
-                    {selectedOrdenCompra.NumeroOC || 'Pendiente'}
-                  </strong>
-                </div>
-
-                <div className={styles.readOnlyField}>
-                  <small>Fecha generación</small>
-                  <strong>
-                    {selectedOrdenCompra.FechaGeneracion
-                      ? formatDateTime(selectedOrdenCompra.FechaGeneracion)
-                      : 'Pendiente'}
-                  </strong>
-                </div>
-              </div>
-
-              {selectedOrdenCompra.TipoOrden === 'GenerarOC' ? (
-                <div className={styles.compactDecisionInfo}>
-                  <small>GENERACIÓN AUTOMÁTICA</small>
-                  <span>
-                    OC generada automáticamente.
-                  </span>
-                </div>
-              ) : selectedOrdenCompra.EstadoOC === 'Generada' ? (
-                <div className={styles.compactDecisionInfo}>
-                  <small>ORDEN REGISTRADA</small>
-                  <span>
-                    OC registrada. Siguiente etapa: Facturación.
-                  </span>
-                </div>
-              ) : (
-                <div className={styles.compactDecisionInfo}>
-                  <small>PENDIENTE DE INGRESAR OC</small>
-                  <span>
-                    Gestiona la OC en el ERP e ingresa aquí el número generado.
-                  </span>
-                </div>
-              )}
-            </section>
-
-            {selectedOrdenCompra.TipoOrden === 'SolicitarOC' &&
-              selectedOrdenCompra.EstadoOC !== 'Generada' && (
-              <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
-                <div className={styles.compactDecisionHeading}>
-                  <div>
-                    <span className={styles.eyebrow}>REGISTRO DE ORDEN</span>
-                    <h3>Ingresar orden de compra</h3>
-                  </div>
-                  <span>
-                    Al registrar la OC, el proceso pasa a Facturación.
-                  </span>
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label className={styles.label} htmlFor="numero-oc-erp">
-                    Número de orden de compra
-                  </label>
-                  <input
-                    id="numero-oc-erp"
-                    className={styles.input}
-                    type="text"
-                    value={numeroOCInput}
-                    disabled={procesandoOrdenCompra}
-                    placeholder="Ej. 4500012876"
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                      setNumeroOCInput(event.target.value)
-                    }
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label className={styles.label} htmlFor="observaciones-oc">
-                    Observaciones
-                  </label>
-                  <textarea
-                    id="observaciones-oc"
-                    className={styles.textarea}
-                    rows={3}
-                    value={observacionesOCInput}
-                    disabled={procesandoOrdenCompra}
-                    placeholder="Opcional"
-                    onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      setObservacionesOCInput(event.target.value)
-                    }
-                  />
-                </div>
-
-                <div className={styles.actions}>
-                  <button
-                    type="button"
-                    className={styles.secondaryButton}
-                    disabled={procesandoOrdenCompra}
-                    onClick={cerrarOrdenCompra}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.primaryButton}
-                    disabled={procesandoOrdenCompra || !numeroOCInput.trim()}
-                    onClick={() => { void registrarNumeroOrdenCompra(); }}
-                  >
-                    {procesandoOrdenCompra
-                      ? 'Registrando...'
-                      : 'Registrar OC →'}
-                  </button>
-                </div>
-              </section>
-            )}
-
-            {selectedRequerimiento &&
-              selectedOrdenCompra.EstadoOC === 'Generada' &&
-              (selectedRequerimiento.EtapaActual === 'Facturacion' ||
-                selectedRequerimiento.EtapaActual === 'Finalizado') && (
-              <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
-                <div className={styles.compactDecisionHeading}>
-                  <div>
-                    <span className={styles.eyebrow}>FACTURACIÓN</span>
-                    <h3>Factura</h3>
-                  </div>
-                  <span>
-                    {selectedRequerimiento.EtapaActual === 'Finalizado'
-                      ? 'Factura registrada. Proceso finalizado.'
-                      : 'Adjunta el PDF para finalizar.'}
-                  </span>
-                </div>
-
-                {selectedOrdenCompra.AttachmentFiles?.length > 0 ? (
-                  <div className={styles.readOnlyQuotationField}>
-                    <small>PDF de factura</small>
-                    {selectedOrdenCompra.AttachmentFiles.map((archivo) => (
-                      <div
-                        key={archivo.ServerRelativeUrl}
-                        className={styles.readOnlyPdfChip}
-                      >
-                        <span className={styles.pdfFileIcon} aria-hidden="true">
-                          PDF
+                {selectedOrdenCompra.TipoOrden === 'SolicitarOC' &&
+                  selectedOrdenCompra.EstadoOC !== 'Generada' && (
+                    <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
+                      <div className={styles.compactDecisionHeading}>
+                        <div>
+                          <span className={styles.eyebrow}>
+                            REGISTRO DE ORDEN
+                          </span>
+                          <h3>Ingresar orden de compra</h3>
+                        </div>
+                        <span>
+                          Al registrar la OC, el proceso pasa a Facturación.
                         </span>
-                        <span
-                          className={styles.pdfFileName}
-                          title={archivo.FileName}
-                        >
-                          {archivo.FileName}
-                        </span>
-                        <button
-                          type="button"
-                          className={styles.previewIconButton}
-                          title="Visualizar factura"
-                          aria-label={`Visualizar ${archivo.FileName}`}
-                          onClick={() => setArchivoPreview(archivo)}
-                        >
-                          Ver PDF
-                        </button>
                       </div>
-                    ))}
-                  </div>
-                ) : selectedRequerimiento.EtapaActual === 'Facturacion' ? (
-                  <div className={styles.formGroup}>
-                    <label className={styles.label} htmlFor="factura-pdf">
-                      PDF de la factura
-                    </label>
 
-                    {facturaPdf ? (
-                      <div className={styles.pdfFileChip}>
-                        <span className={styles.pdfFileIcon} aria-hidden="true">
-                          PDF
-                        </span>
-                        <span
-                          className={styles.pdfFileName}
-                          title={facturaPdf.name}
+                      <div className={styles.formGroup}>
+                        <label
+                          className={styles.label}
+                          htmlFor="numero-oc-erp"
                         >
-                          {facturaPdf.name}
-                        </span>
-                        <button
-                          type="button"
-                          className={styles.pdfFileRemove}
-                          disabled={procesandoFactura}
-                          onClick={() => setFacturaPdf(null)}
-                          aria-label="Quitar factura seleccionada"
-                          title="Quitar archivo"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ) : (
-                      <label className={styles.fileUpload}>
+                          Número de orden de compra
+                        </label>
                         <input
-                          id="factura-pdf"
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          disabled={procesandoFactura}
-                          aria-label="Adjuntar PDF de factura"
-                          onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                            const archivo = event.target.files?.[0] || null;
-
-                            if (archivo) {
-                              const esPdf =
-                                archivo.type === 'application/pdf' ||
-                                /\.pdf$/i.test(archivo.name);
-
-                              if (!esPdf) {
-                                setMessage('La factura debe ser un archivo PDF.');
-                                event.target.value = '';
-                                return;
-                              }
-                            }
-
-                            setMessage('');
-                            setFacturaPdf(archivo);
-                          }}
+                          id="numero-oc-erp"
+                          className={styles.input}
+                          type="text"
+                          value={numeroOCInput}
+                          disabled={procesandoOrdenCompra}
+                          placeholder="Ej. 4500012876"
+                          onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                            setNumeroOCInput(event.target.value)
+                          }
                         />
-                        <span className={styles.fileUploadIcon} aria-hidden="true">
-                          ↑
-                        </span>
-                        <span className={styles.fileUploadText}>
-                          Adjuntar factura PDF
-                        </span>
-                      </label>
-                    )}
-                  </div>
-                ) : null}
-
-                {selectedRequerimiento.EtapaActual === 'Facturacion' && (
-                  <div className={styles.actions}>
-                    <button
-                      type="button"
-                      className={styles.primaryButton}
-                      disabled={
-                        procesandoFactura ||
-                        (!selectedOrdenCompra.AttachmentFiles?.length && !facturaPdf)
-                      }
-                      onClick={() => {
-                        registrarFacturaYFinalizar().catch((error: unknown) => {
-                          setMessage(getErrorMessage(error));
-                        });
-                      }}
-                    >
-                      {procesandoFactura
-                        ? 'Procesando...'
-                        : selectedOrdenCompra.AttachmentFiles?.length
-                          ? 'Finalizar requerimiento →'
-                          : 'Guardar factura y finalizar →'}
-                    </button>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {selectedOrdenCompra.Observaciones && (
-              <section className={styles.detailCard}>
-                <div className={styles.compactDescriptionReadOnly}>
-                  <small>Observaciones</small>
-                  <p>{selectedOrdenCompra.Observaciones}</p>
-                </div>
-              </section>
-            )}
-
-            {selectedRequerimiento && (
-              <section className={`${styles.detailCard} ${styles.historyCard}`}>
-                <div className={styles.historyHeader}>
-                  <div>
-                    <span className={styles.eyebrow}>TRAZABILIDAD</span>
-                    <h3>Historial del requerimiento</h3>
-                  </div>
-                </div>
-
-                <div className={styles.historyList}>
-                  {getHistoryEvents(selectedRequerimiento)
-                    .slice()
-                    .reverse()
-                    .map((event: IHistoryEvent) => (
-                      <div
-                        key={event.key}
-                        className={styles.historyItem}
-                      >
-                        <div className={styles.historyRail}>
-                          <span className={styles.historyDot} />
-                        </div>
-
-                        <div className={styles.historyContent}>
-                          <div className={styles.historyItemHeader}>
-                            <strong>{event.title}</strong>
-                            <span>{formatDateTime(event.date)}</span>
-                          </div>
-
-                          {event.actor && (
-                            <small>Por {event.actor}</small>
-                          )}
-
-                          {event.detail && (
-                            <p>{event.detail}</p>
-                          )}
-                        </div>
                       </div>
-                    ))}
-                </div>
-              </section>
+
+                      <div className={styles.formGroup}>
+                        <label
+                          className={styles.label}
+                          htmlFor="observaciones-oc"
+                        >
+                          Observaciones
+                        </label>
+                        <textarea
+                          id="observaciones-oc"
+                          className={styles.textarea}
+                          rows={3}
+                          value={observacionesOCInput}
+                          disabled={procesandoOrdenCompra}
+                          placeholder="Opcional"
+                          onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                            setObservacionesOCInput(event.target.value)
+                          }
+                        />
+                      </div>
+
+                      <div className={styles.actions}>
+                        <button
+                          type="button"
+                          className={styles.secondaryButton}
+                          disabled={procesandoOrdenCompra}
+                          onClick={cerrarOrdenCompra}
+                        >
+                          Cancelar
+                        </button>
+
+                        <button
+                          type="button"
+                          className={styles.primaryButton}
+                          disabled={
+                            procesandoOrdenCompra ||
+                            !numeroOCInput.trim()
+                          }
+                          onClick={() => {
+                            void registrarNumeroOrdenCompra();
+                          }}
+                        >
+                          {procesandoOrdenCompra
+                            ? 'Registrando...'
+                            : 'Registrar OC →'}
+                        </button>
+                      </div>
+                    </section>
+                  )}
+
+                {selectedOrdenCompra.Observaciones && (
+                  <section className={styles.detailCard}>
+                    <div className={styles.compactDescriptionReadOnly}>
+                      <small>Observaciones</small>
+                      <p>{selectedOrdenCompra.Observaciones}</p>
+                    </div>
+                  </section>
+                )}
+
+                {renderTraceabilityAndDocuments(
+                  selectedRequerimiento,
+                  true
+                )}
+              </>
             )}
           </div>
         ) : (
@@ -3901,7 +4312,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
             <div className={styles.listHeaderBand}>
               <div className={styles.pageIntro}>
                 <div>
-                  <span className={styles.eyebrow}>GESTIÓN OPERATIVA</span>
+                  <span className={styles.eyebrow}>
+                    {user?.role === 'Contador'
+                      ? 'CONTROL CONTABLE'
+                      : 'GESTIÓN OPERATIVA'}
+                  </span>
                   <h2 className={styles.pageTitle}>Órdenes de compra</h2>
                 </div>
               </div>
@@ -3969,7 +4384,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 </div>
               ) : (
                 <>
-                  <table className={styles.requestsTable}>
+                  <table className={`${styles.requestsTable} ${styles.ordersTable}`}>
                     <thead>
                       <tr>
                         <th>OC</th>
@@ -3977,8 +4392,8 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                         <th>Tipo</th>
                         <th>Estado</th>
                         <th>Número OC</th>
-                        <th>Fecha</th>
-                        <th />
+                        <th>Fecha aprobación</th>
+                        <th>Acción</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3996,6 +4411,14 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                             <strong>
                               {orden.Title || `OC #${orden.Id}`}
                             </strong>
+                            {user?.role === 'Contador' && (
+                              <>
+                                <br />
+                                <small>
+                                  Responsable: {orden.ResponsableOC?.Title || 'Sin asignar'}
+                                </small>
+                              </>
+                            )}
                           </td>
 
                           <td>
@@ -4045,11 +4468,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                           </td>
 
                           <td>
-                            {orden.FechaGeneracion
-                              ? new Date(orden.FechaGeneracion).toLocaleDateString('es-EC')
-                              : orden.FechaSolicitud
-                                ? new Date(orden.FechaSolicitud).toLocaleDateString('es-EC')
-                                : 'Sin fecha'}
+                            {orden.FechaAprobacion
+                              ? new Date(orden.FechaAprobacion).toLocaleDateString('es-EC')
+                              : 'Sin fecha de aprobación'}
                           </td>
 
                           <td>
@@ -4092,11 +4513,12 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                               {orden.Title || `OC #${orden.Id}`}
                             </strong>
                             <span>
-                              {orden.FechaGeneracion
-                                ? new Date(orden.FechaGeneracion).toLocaleDateString('es-EC')
-                                : orden.FechaSolicitud
-                                  ? new Date(orden.FechaSolicitud).toLocaleDateString('es-EC')
-                                  : 'Sin fecha'}
+                              {orden.FechaAprobacion
+                                ? new Date(orden.FechaAprobacion).toLocaleDateString('es-EC')
+                                : 'Sin fecha de aprobación'}
+                              {user?.role === 'Contador'
+                                ? ` · ${orden.ResponsableOC?.Title || 'Sin responsable'}`
+                                : ''}
                             </span>
                           </div>
 
@@ -4178,387 +4600,123 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                   setEtapaConsulta(null);
                 }}
               >
-                ← Solicitudes
+                ← Volver
               </button>
 
               <div className={styles.detailSectionHeading}>
-                <div className={styles.detailTitleRow}>
-                  <h2 className={styles.pageTitle}>Requerimiento #{selectedRequerimiento.Id}</h2>
+                <div className={styles.detailStatusGroup}>
                   <span className={getEstadoClass(selectedRequerimiento.Estado)}>
                     {selectedRequerimiento.Estado}
                   </span>
+
+                  {(user?.role === 'Aprobador' ||
+                    user?.role === 'Admin') && (
+                    <span className={styles.roleAccentBadge}>
+                      Aprobador
+                    </span>
+                  )}
                 </div>
-                {(user?.role === 'Aprobador' || user?.role === 'Admin') && (
-                  <span className={styles.roleAccentBadge}>Aprobador</span>
-                )}
               </div>
             </div>
 
+            {renderProcessTimeline(selectedRequerimiento)}
+
             <section className={`${styles.detailCard} ${styles.unifiedRequestCard}`}>
+              <div className={styles.sectionMiniHeading}>
+                <span className={styles.eyebrow}>DATOS GENERALES</span>
+              </div>
+
               <div className={styles.readOnlyFieldsGrid}>
-                <div className={styles.readOnlyField}>
-                  <small>Categoría</small>
-                  <strong>{getCategoriaNombre(selectedRequerimiento.CategoriaId)}</strong>
+                <div className={`${styles.readOnlyField} ${styles.requestIdMiniField}`}>
+                  <small>Requerimiento</small>
+                  <strong>#{selectedRequerimiento.Id}</strong>
                 </div>
+
                 <div className={styles.readOnlyField}>
-                  <small>Tipo de proceso</small>
-                  <strong>{selectedRequerimiento.Recurrente ? 'Recurrente' : 'No recurrente'}</strong>
-                </div>
-                <div className={styles.readOnlyField}>
-                  <small>Solicitado por</small>
-                  <strong>{selectedRequerimiento.Solicitante?.Title || 'Sin solicitante'}</strong>
-                </div>
-                <div className={styles.readOnlyField}>
-                  <small>Fecha</small>
-                  <strong>{new Date(selectedRequerimiento.Created).toLocaleDateString('es-EC')}</strong>
-                </div>
-                <div className={styles.readOnlyField}>
-                  <small>Valor promedio</small>
+                  <small>Área</small>
                   <strong>
-                    {formatCurrency(
-                      selectedRequerimiento.ValorPromedio ??
-                      selectedRequerimiento.ValorTotal ??
-                      0
-                    )}
+                    {selectedRequerimiento.Area || 'Sin área'}
                   </strong>
                 </div>
-                {selectedRequerimiento.Estado === 'Aprobado' &&
-                  selectedRequerimiento.ValorPromedio !== undefined &&
-                  selectedRequerimiento.ValorPromedio !== null && (
-                  <div className={styles.readOnlyField}>
-                    <small>Valor aprobado</small>
-                    <strong>{formatCurrency(selectedRequerimiento.ValorTotal)}</strong>
-                  </div>
-                )}
+
+                <div className={styles.readOnlyField}>
+                  <small>Categoría</small>
+                  <strong>
+                    {getCategoriaNombre(selectedRequerimiento.CategoriaId)}
+                  </strong>
+                </div>
+
+                <div className={styles.readOnlyField}>
+                  <small>Tipo de proceso</small>
+                  <strong>
+                    {selectedRequerimiento.Recurrente
+                      ? `Recurrente · Contrato${
+                          selectedRequerimiento.MesesRecurrencia
+                            ? ` · ${selectedRequerimiento.MesesRecurrencia} meses`
+                            : ''
+                        }`
+                      : 'No recurrente · OCV'}
+                  </strong>
+                </div>
+
+                <div className={styles.readOnlyField}>
+                  <small>Solicitado por</small>
+                  <strong>
+                    {selectedRequerimiento.Solicitante?.Title ||
+                      'Sin solicitante'}
+                  </strong>
+                </div>
+
+                <div className={styles.readOnlyField}>
+                  <small>Fecha de solicitud</small>
+                  <strong>
+                    {formatHistoryDate(selectedRequerimiento.Created)}
+                  </strong>
+                </div>
               </div>
 
               <div className={styles.compactDescriptionReadOnly}>
                 <small>Descripción</small>
-                <p title={selectedRequerimiento.Descripcion}>{selectedRequerimiento.Descripcion}</p>
+                <p title={selectedRequerimiento.Descripcion}>
+                  {selectedRequerimiento.Descripcion}
+                </p>
               </div>
 
-              <div className={styles.detailMetaRow}>
-                <div>
-                  <small>Etapa actual</small>
-                  <span className={styles.stageBadge}>{getEtapaLabel(selectedRequerimiento.EtapaActual)}</span>
-                </div>
-                <div>
-                  <small>Estado</small>
-                  <span className={getEstadoClass(selectedRequerimiento.Estado)}>{selectedRequerimiento.Estado}</span>
-                </div>
-              </div>
-
-              {(selectedRequerimiento.Estado === 'Aprobado' ||
-                selectedRequerimiento.Estado === 'Rechazado') && (
-                <div className={styles.compactDecisionInfo}>
-                  <small>Decisión del aprobador</small>
-                  <span>
-                    <strong>
-                      {selectedRequerimiento.Estado === 'Aprobado' ? 'Aprobado por' : 'Rechazado por'}
-                    </strong>{' '}
-                    {selectedRequerimiento.DecisionPor?.Title || 'Sin información'}
-                    {(selectedRequerimiento.FechaDecision || selectedRequerimiento.FechaAprobacion) && (
-                      <> · {new Date(
-                        selectedRequerimiento.FechaDecision ||
-                        selectedRequerimiento.FechaAprobacion ||
-                        ''
-                      ).toLocaleDateString('es-EC')}</>
-                    )}
-                    {selectedRequerimiento.ComentarioAprobador && (
-                      <> · {selectedRequerimiento.ComentarioAprobador}</>
-                    )}
-                  </span>
-                </div>
-              )}
-
-              {ordenCompraDetalle &&
-                selectedRequerimiento.Estado === 'Aprobado' && (
-                <div className={styles.compactDecisionInfo}>
-                  <small>ORDEN DE COMPRA</small>
-                  <span>
-                    <strong>
-                      {ordenCompraDetalle.EstadoOC === 'Generada'
-                        ? 'OC registrada'
-                        : 'OC pendiente'}
-                    </strong>
-                    {' · '}
-                    {ordenCompraDetalle.TipoDocumento}
-                    {ordenCompraDetalle.NumeroOC && (
-                      <> · Número: {ordenCompraDetalle.NumeroOC}</>
-                    )}
-                    {ordenCompraDetalle.FechaGeneracion && (
-                      <>
-                        {' · '}
-                        {formatDateTime(ordenCompraDetalle.FechaGeneracion)}
-                      </>
-                    )}
-                    {!ordenCompraDetalle.FechaGeneracion &&
-                      ordenCompraDetalle.ResponsableOC?.Title && (
-                      <>
-                        {' · '}Responsable:{' '}
-                        {ordenCompraDetalle.ResponsableOC.Title}
-                      </>
-                    )}
-                  </span>
-                </div>
-              )}
-
-              <div className={styles.compactTimeline} aria-label="Etapas del proceso">
-                {getEtapas(selectedRequerimiento).map((etapa, index, etapas) => {
-                  const currentIndex = Math.max(
-                    0,
-                    etapas.indexOf(
-                      selectedRequerimiento.EtapaActual || 'Solicitud'
-                    )
-                  );
-                  const completed =
-                    index < currentIndex ||
-                    selectedRequerimiento.EtapaActual === 'Finalizado';
-                  const current =
-                    index === currentIndex &&
-                    selectedRequerimiento.EtapaActual !== 'Finalizado';
-                  const consultable =
-                    index <= currentIndex ||
-                    selectedRequerimiento.EtapaActual === 'Finalizado';
-                  const selected =
-                    etapaConsulta === etapa;
-
-                  return (
-                    <button
-                      key={etapa}
-                      type="button"
-                      className={`${styles.compactTimelineStep} ${styles.timelineStepButton} ${completed ? styles.timelineCompleted : ''} ${current ? styles.timelineCurrent : ''} ${selected ? styles.timelineSelected : ''}`}
-                      aria-current={current ? 'step' : undefined}
-                      aria-pressed={selected}
-                      disabled={!consultable}
-                      onClick={() => {
-                        if (consultable) {
-                          setEtapaConsulta(etapa);
-                        }
-                      }}
-                    >
-                      <div className={styles.compactTimelineMarker}>
-                        {completed ? '✓' : index + 1}
-                      </div>
-                      <span>{getEtapaLabel(etapa)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {etapaConsulta && (() => {
-                const etapaData = getStageInspection(
-                  selectedRequerimiento,
-                  etapaConsulta
-                );
-
-                return (
-                  <div className={styles.stageInspection}>
-                    <div className={styles.stageInspectionHeader}>
-                      <div>
-                        <small>DETALLE DE ETAPA</small>
-                        <strong>{etapaData.title}</strong>
-                      </div>
-                      <span>{etapaData.status}</span>
-                    </div>
-
-                    <div className={styles.stageInspectionMeta}>
-                      {etapaData.date && (
-                        <span>{formatDateTime(etapaData.date)}</span>
-                      )}
-                      {etapaData.actor && (
-                        <span>{etapaData.actor}</span>
-                      )}
-                    </div>
-
-                    <div className={styles.stageInspectionDetails}>
-                      {etapaData.details.map(
-                        (detail: string, detailIndex: number) => (
-                          <div key={`${etapaData.title}-${detailIndex}`}>
-                            {detail}
-                          </div>
-                        )
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
             </section>
 
-            {ordenCompraDetalle && (ordenCompraDetalle.AttachmentFiles?.length ?? 0) > 0 && (
-              <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
-                <div className={styles.compactDecisionHeading}>
-                  <div>
-                    <span className={styles.eyebrow}>FACTURACIÓN</span>
-                    <h3>Factura asociada</h3>
-                  </div>
-                  <span>
-                    Documento asociado a la orden de compra{' '}
-                    {ordenCompraDetalle.NumeroOC || ''}.
-                  </span>
-                </div>
+            {renderStageInspection(selectedRequerimiento)}
 
-                <div className={styles.readOnlyQuotationField}>
-                  <small>PDF de factura</small>
-                  {(ordenCompraDetalle.AttachmentFiles || []).map((archivo) => (
-                    <div
-                      key={archivo.ServerRelativeUrl}
-                      className={styles.readOnlyPdfChip}
-                    >
-                      <span className={styles.pdfFileIcon} aria-hidden="true">
-                        PDF
-                      </span>
-                      <span
-                        className={styles.pdfFileName}
-                        title={archivo.FileName}
-                      >
-                        {archivo.FileName}
-                      </span>
-                      <button
-                        type="button"
-                        className={styles.previewIconButton}
-                        title="Visualizar factura"
-                        aria-label={`Visualizar ${archivo.FileName}`}
-                        onClick={() => setArchivoPreview(archivo)}
-                      >
-                        Ver PDF
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            {(
+              selectedRequerimiento.Estado === 'Borrador' ||
+              etapaConsulta === 'Solicitud' ||
+              (
+                (user?.role === 'Aprobador' ||
+                  user?.role === 'Admin') &&
+                selectedRequerimiento.Estado === 'Enviado Aprobacion'
+              )
+            ) && renderAllQuotations(selectedRequerimiento)}
 
-            <section className={`${styles.formSection} ${styles.detailQuotationsSection}`}>
-              <div className={`${styles.sectionHeaderRow} ${styles.compactQuotationHeader}`}>
-                <h3>Cotizaciones</h3>
-                <span className={styles.counterBadge}>{cotizacionesDetalle.length} / 3</span>
-              </div>
-
-              {loadingDetalle ? (
-                <div className={styles.detailQuotationSkeletonGrid} aria-busy="true" aria-label="Cargando cotizaciones">
-                  {[0, 1, 2].map((item) => <div key={item} className={styles.detailQuotationSkeleton} />)}
-                </div>
-              ) : cotizacionesDetalle.length === 0 ? (
-                <div className={styles.emptyState}>Este requerimiento no tiene cotizaciones registradas.</div>
-              ) : (
-                <div className={styles.approvalQuotationGrid}>
-                  {cotizacionesDetalle.map((cotizacion, cotizacionIndex) => {
-                    const puedeSeleccionar =
-                      (user?.role === 'Aprobador' || user?.role === 'Admin') &&
-                      selectedRequerimiento.Estado === 'Enviado Aprobacion';
-                    const seleccionada = cotizacionSeleccionadaId === cotizacion.Id;
-                    const aprobada = cotizacion.Seleccionada && selectedRequerimiento.Estado === 'Aprobado';
-
-                    return (
-                      <div
-                        key={cotizacion.Id}
-                        className={`${styles.approvalQuotationCard} ${
-                          seleccionada || aprobada ? styles.approvalQuotationCardSelected : ''
-                        } ${puedeSeleccionar ? styles.approvalQuotationCardClickable : ''}`}
-                        role={puedeSeleccionar ? 'button' : undefined}
-                        tabIndex={puedeSeleccionar ? 0 : undefined}
-                        aria-pressed={puedeSeleccionar ? seleccionada : undefined}
-                        onClick={() => {
-                          if (puedeSeleccionar && !procesandoDecision) {
-                            setCotizacionSeleccionadaId(cotizacion.Id);
-                          }
-                        }}
-                        onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
-                          if (puedeSeleccionar && (event.key === 'Enter' || event.key === ' ')) {
-                            event.preventDefault();
-                            setCotizacionSeleccionadaId(cotizacion.Id);
-                          }
-                        }}
-                      >
-                        <div className={styles.readOnlyQuotationHeader}>
-                          <span className={styles.quotationLabel}>COTIZACIÓN {cotizacionIndex + 1}</span>
-                          <div className={styles.readOnlyQuotationHeaderMeta}>
-                            {cotizacion.CodigoCotizacionInterno && (
-                              <small title={cotizacion.CodigoCotizacionInterno}>{cotizacion.CodigoCotizacionInterno}</small>
-                            )}
-                            {(seleccionada || aprobada) && (
-                              <span className={styles.selectionCheck} title="Cotización seleccionada">✓</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className={styles.readOnlyQuotationBody}>
-                          <div className={styles.readOnlyQuotationField}>
-                            <small>PDF</small>
-                            {cotizacion.Attachments.length > 0 ? cotizacion.Attachments.map((archivo) => (
-                              <div key={archivo.ServerRelativeUrl} className={styles.readOnlyPdfChip}>
-                                <span className={styles.pdfFileIcon} aria-hidden="true">PDF</span>
-                                <span className={styles.pdfFileName} title={archivo.FileName}>{archivo.FileName}</span>
-                                <button
-                                  type="button"
-                                  className={styles.previewIconButton}
-                                  title="Visualizar PDF"
-                                  aria-label={`Visualizar ${archivo.FileName}`}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setArchivoPreview(archivo);
-                                  }}
-                                >
-                                  <svg
-                                    className={styles.previewEyeIcon}
-                                    viewBox="0 0 24 24"
-                                    aria-hidden="true"
-                                  >
-                                    <path
-                                      d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="1.8"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                    <circle
-                                      cx="12"
-                                      cy="12"
-                                      r="2.7"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="1.8"
-                                    />
-                                  </svg>
-                                  <span>Ver PDF</span>
-                                </button>
-                              </div>
-                            )) : (
-                              <span className={styles.noFileText}>Sin documento adjunto</span>
-                            )}
-                          </div>
-
-                          <div className={styles.readOnlyQuotationField}>
-                            <small>Valor</small>
-                            <strong className={styles.readOnlyQuotationValue}>{formatCurrency(cotizacion.ValorTotal)}</strong>
-                          </div>
-                        </div>
-
-                        <div className={styles.readOnlyQuotationFooter}>
-                          <span>Total</span>
-                          <strong>{formatCurrency(cotizacion.ValorTotal)}</strong>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {(user?.role === 'Aprobador' || user?.role === 'Admin') &&
+            {(user?.role === 'Aprobador' ||
+              user?.role === 'Admin') &&
               selectedRequerimiento.Estado === 'Enviado Aprobacion' && (
                 <section className={`${styles.detailCard} ${styles.compactDecisionCard}`}>
                   <div className={styles.compactDecisionHeading}>
                     <div>
-                      <span className={styles.eyebrow}>DECISIÓN DEL APROBADOR</span>
+                      <span className={styles.eyebrow}>
+                        DECISIÓN DEL APROBADOR
+                      </span>
                       <h3>Aprobar o rechazar requerimiento</h3>
                     </div>
-                    <span>Selecciona una cotización para aprobar. El comentario es obligatorio al rechazar.</span>
+                    <span>
+                      Selecciona una cotización para aprobar. El comentario
+                      es obligatorio al rechazar.
+                    </span>
                   </div>
+
                   <div className={styles.formGroup}>
-                    <label className={styles.label}>Comentario (obligatorio al rechazar)</label>
+                    <label className={styles.label}>
+                      Comentario (obligatorio al rechazar)
+                    </label>
                     <textarea
                       className={styles.textarea}
                       rows={2}
@@ -4572,47 +4730,10 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                 </section>
               )}
 
-            <section className={`${styles.detailCard} ${styles.historyCard}`}>
-              <div className={styles.historyHeader}>
-                <div>
-                  <span className={styles.eyebrow}>TRAZABILIDAD</span>
-                  <h3>Historial del requerimiento</h3>
-                </div>
-              </div>
-
-              <div className={styles.historyList}>
-                {getHistoryEvents(selectedRequerimiento)
-                  .slice()
-                  .reverse()
-                  .map((event: IHistoryEvent) => (
-                    <div
-                      key={event.key}
-                      className={styles.historyItem}
-                    >
-                      <div className={styles.historyRail}>
-                        <span className={styles.historyDot} />
-                      </div>
-
-                      <div className={styles.historyContent}>
-                        <div className={styles.historyItemHeader}>
-                          <strong>{event.title}</strong>
-                          <span>
-                            {formatDateTime(event.date)}
-                          </span>
-                        </div>
-
-                        {event.actor && (
-                          <small>Por {event.actor}</small>
-                        )}
-
-                        {event.detail && (
-                          <p>{event.detail}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </section>
+            {renderTraceabilityAndDocuments(
+              selectedRequerimiento,
+              false
+            )}
 
             <div className={`${styles.stickyActions} ${styles.compactStickyActions} ${styles.detailActionBar}`}>
               <div className={styles.nextStepSummary}>
@@ -4648,24 +4769,34 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                   </div>
                 )}
 
-              {(user?.role === 'Aprobador' || user?.role === 'Admin') &&
+              {(user?.role === 'Aprobador' ||
+                user?.role === 'Admin') &&
                 selectedRequerimiento.Estado === 'Enviado Aprobacion' && (
                   <div className={styles.actions}>
                     <button
                       type="button"
                       className={styles.secondaryButton}
                       disabled={procesandoDecision}
-                      onClick={() => { void decidirRequerimiento(false); }}
+                      onClick={() => {
+                        void decidirRequerimiento(false);
+                      }}
                     >
-                      {procesandoDecision ? 'Procesando...' : 'Rechazar'}
+                      {procesandoDecision
+                        ? 'Procesando...'
+                        : 'Rechazar'}
                     </button>
+
                     <button
                       type="button"
                       className={styles.primaryButton}
                       disabled={procesandoDecision}
-                      onClick={() => { void decidirRequerimiento(true); }}
+                      onClick={() => {
+                        void decidirRequerimiento(true);
+                      }}
                     >
-                      {procesandoDecision ? 'Procesando...' : 'Aprobar cotización'}
+                      {procesandoDecision
+                        ? 'Procesando...'
+                        : 'Aprobar cotización'}
                     </button>
                   </div>
                 )}
@@ -4727,11 +4858,9 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                           <td>{getCategoriaNombre(requerimiento.CategoriaId)}</td>
                           <td>
                             <strong>
-                              {formatCurrency(
-                                requerimiento.Estado === 'Aprobado'
-                                  ? requerimiento.ValorTotal
-                                  : (requerimiento.ValorPromedio ?? requerimiento.ValorTotal ?? 0)
-                              )}
+                              {requerimiento.Estado === 'Aprobado'
+                                ? formatCurrency(requerimiento.ValorTotal)
+                                : '—'}
                             </strong>
                           </td>
                           <td>
@@ -4778,7 +4907,7 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                       const valorVisible =
                         requerimiento.Estado === 'Aprobado'
                           ? requerimiento.ValorTotal
-                          : (requerimiento.ValorPromedio ?? requerimiento.ValorTotal ?? 0);
+                          : null;
 
                       return (
                         <button
@@ -4809,7 +4938,11 @@ const Requerimientos: React.FC<IRequerimientosProps> = ({
                             </div>
                             <div>
                               <small>Valor</small>
-                              <strong>{formatCurrency(valorVisible)}</strong>
+                              <strong>
+                                {valorVisible !== null
+                                  ? formatCurrency(valorVisible)
+                                  : '—'}
+                              </strong>
                             </div>
                           </div>
 
